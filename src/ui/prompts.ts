@@ -1,8 +1,9 @@
-import { confirm } from "@inquirer/prompts";
+import { confirm, input } from "@inquirer/prompts";
 import gooseCheckbox from "./goose-checkbox.js";
 import gooseSelect from "./goose-select.js";
 import chalk from "chalk";
 import type { DiscoveredSession } from "../sessions/types.js";
+import type { UploadMetadata } from "../upload/upload.js";
 
 /**
  * Let the user pick which untracked files to include.
@@ -109,4 +110,38 @@ export async function askCustomizeExcludes(): Promise<boolean> {
     message: "Would you like to customize the exclude patterns?",
     default: false,
   });
+}
+
+/**
+ * Prompt for optional upload metadata (all fields skippable with Enter).
+ */
+export async function promptUploadMetadata(
+  detectedRepoUrl?: string | null,
+): Promise<UploadMetadata> {
+  console.log();
+  console.log(
+    chalk.dim("You can optionally provide contact info (press Enter to skip):"),
+  );
+
+  const userEmail = await input({ message: "Email (optional):" });
+  const userName = await input({ message: "Name (optional):" });
+
+  let repoUrl = "";
+  if (detectedRepoUrl) {
+    const useDetected = await confirm({
+      message: `Include repo URL ${chalk.cyan(detectedRepoUrl)}?`,
+      default: true,
+    });
+    if (useDetected) {
+      repoUrl = detectedRepoUrl;
+    }
+  } else {
+    repoUrl = await input({ message: "Repo URL (optional):" });
+  }
+
+  return {
+    ...(userEmail && { userEmail }),
+    ...(userName && { userName }),
+    ...(repoUrl && { repoUrl }),
+  };
 }

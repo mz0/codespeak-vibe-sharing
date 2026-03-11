@@ -23,7 +23,9 @@ import {
   selectSessions,
   promptNoSessions,
   confirmFileList,
+  promptUploadMetadata,
 } from "./ui/prompts.js";
+import { getGitRemoteUrl } from "./utils/paths.js";
 import { getDefaultExcludeDescription } from "./utils/excludes.js";
 import { MAX_ARCHIVE_SIZE_MB } from "./config.js";
 import { VibeError, archiveTooLarge } from "./utils/errors.js";
@@ -253,10 +255,16 @@ export async function run(options: CliOptions): Promise<void> {
           return;
         }
 
+        // Collect optional metadata
+        const detectedRepoUrl = projectState.isGitRepo
+          ? await getGitRemoteUrl(projectState.root)
+          : null;
+        const metadata = await promptUploadMetadata(detectedRepoUrl);
+
         const uploadSpinner = ora("Uploading...").start();
         const { shareUrl } = await uploadArchive(zipPath, sizeBytes, (pct) => {
           uploadSpinner.text = `Uploading... ${pct}%`;
-        });
+        }, metadata);
         uploadSpinner.succeed("Upload complete");
 
         showPostUploadInfo(shareUrl);

@@ -72,3 +72,20 @@ export async function getGitCommit(cwd: string): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Get the remote URL for the git repository (origin).
+ * Returns null if not a git repo or no remote is configured.
+ */
+export async function getGitRemoteUrl(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["remote", "get-url", "origin"],
+      { cwd },
+    );
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}

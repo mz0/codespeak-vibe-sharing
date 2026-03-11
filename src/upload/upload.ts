@@ -12,6 +12,12 @@ interface ConfirmResponse {
   shareUrl: string;
 }
 
+export interface UploadMetadata {
+  userEmail?: string;
+  userName?: string;
+  repoUrl?: string;
+}
+
 export interface UploadResult {
   shareUrl: string;
   uploadId: string;
@@ -25,6 +31,7 @@ export async function uploadArchive(
   zipPath: string,
   sizeBytes: number,
   onProgress?: (percent: number) => void,
+  metadata?: UploadMetadata,
 ): Promise<UploadResult> {
   // Step 1: Get presigned URL from backend
   let presign: PresignResponse;
@@ -36,6 +43,9 @@ export async function uploadArchive(
         filename: path.basename(zipPath),
         sizeBytes,
         contentType: "application/zip",
+        ...(metadata?.userEmail && { userEmail: metadata.userEmail }),
+        ...(metadata?.userName && { userName: metadata.userName }),
+        ...(metadata?.repoUrl && { repoUrl: metadata.repoUrl }),
       }),
     });
 
