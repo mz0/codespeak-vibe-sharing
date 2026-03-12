@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vibe Share — Uploads</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app" style="display: none;">
+    <div class="header">
+      <h1>Vibe Share</h1>
+      <div class="header-actions">
+        <button id="refresh-btn" class="btn">Refresh</button>
+        <button id="logout-btn" class="btn">Logout</button>
+      </div>
+    </div>
+    <div class="container">
+      <div id="loading">Loading uploads...</div>
+      <div id="error" style="display: none;"></div>
+      <div id="empty-state" style="display: none;">No uploads yet.</div>
+      <table id="uploads-table">
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Size</th>
+            <th>Uploaded by</th>
+            <th>Date</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="uploads-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="auth.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

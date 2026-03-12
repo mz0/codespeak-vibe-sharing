@@ -8,6 +8,10 @@ export const config = {
   //   aws ssm put-parameter --name /vibe-share/slack-webhook-url --type SecureString --value "https://hooks.slack.com/services/..."
   slackWebhookSsmParam: "/vibe-share/slack-webhook-url",
 
+  // Cognito hosted UI domain prefix.
+  // The full domain will be: <prefix>.auth.<region>.amazoncognito.com
+  cognitoDomainPrefix: "codespeak-vibe-share",
+
   // Allowed CORS origins.
   // S3 supports wildcards; API Gateway HTTP API v2 does NOT — list subdomains explicitly.
   corsAllowedOrigins: [

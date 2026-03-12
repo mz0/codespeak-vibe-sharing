@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STACK_NAME="VibeShareStack"
+REGION="eu-north-1"
+
+aws_opts=(--region "$REGION" --output json)
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <email>"
+  exit 1
+fi
+
+EMAIL="$1"
+
+# ── Resolve User Pool ID from CloudFormation ─────────────────────────
+USER_POOL_ID=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" "${aws_opts[@]}" \
+  | jq -r '.Stacks[0].Outputs[] | select(.OutputKey=="CognitoUserPoolId") | .OutputValue')
+
+echo "User Pool: $USER_POOL_ID"
+echo "Creating user: $EMAIL"
+echo
+
+aws cognito-idp admin-create-user \
+  --user-pool-id "$USER_POOL_ID" \
+  --username "$EMAIL" \
+  --user-attributes Name=email,Value="$EMAIL" Name=email_verified,Value=true \
+  --region "$REGION" \
+  --output table
+
+echo
+echo "A temporary password has been emailed to $EMAIL."
+echo "The user will be prompted to set a new password on first login."

@@ -5,12 +5,17 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as apigatewayv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigatewayv2Integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as apigatewayv2Authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as snsSubscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
+import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as cloudfrontOrigins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as path from "path";
@@ -45,6 +50,42 @@ export class VibeShareStack extends cdk.Stack {
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
 
+    // ─── Cognito User Pool ───
+    const userPool = new cognito.UserPool(this, "WebUiUserPool", {
+      selfSignUpEnabled: true,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      passwordPolicy: {
+        minLength: 8,
+        requireUppercase: true,
+        requireDigits: true,
+        requireSymbols: false,
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    const userPoolDomain = new cognito.UserPoolDomain(this, "WebUiUserPoolDomain", {
+      userPool,
+      cognitoDomain: { domainPrefix: config.cognitoDomainPrefix },
+    });
+
+    const userPoolClient = new cognito.UserPoolClient(this, "WebUiUserPoolClient", {
+      userPool,
+      generateSecret: false,
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.EMAIL,
+          cognito.OAuthScope.PROFILE,
+        ],
+        callbackUrls: ["https://dzy3mo6yrryh.cloudfront.net/callback.html"],
+        logoutUrls: ["https://dzy3mo6yrryh.cloudfront.net/"],
+      },
+      authFlows: { userSrp: true },
+    });
+
     // ─── Shared Lambda config ───
     const lambdaDir = path.join(__dirname, "..", "lambda");
     const sharedEnv = {
@@ -63,6 +104,19 @@ export class VibeShareStack extends cdk.Stack {
         sourceMap: true,
       },
     };
+
+    // ─── Pre Sign-up trigger (restrict to @codespeak.dev) ───
+    const preSignUpFn = new lambdaNode.NodejsFunction(this, "PreSignUpFunction", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      architecture: lambda.Architecture.ARM_64,
+      memorySize: 128,
+      timeout: cdk.Duration.seconds(5),
+      entry: path.join(lambdaDir, "pre-sign-up", "index.ts"),
+      handler: "handler",
+      bundling: { minify: true, sourceMap: true },
+    });
+
+    userPool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignUpFn);
 
     // ─── Upload Events Topic (Slack-only, no email) ───
     const uploadEventsTopic = new sns.Topic(this, "UploadEventsTopic", {
@@ -107,6 +161,21 @@ export class VibeShareStack extends cdk.Stack {
     table.grant(confirmFn, "dynamodb:GetItem", "dynamodb:UpdateItem");
     uploadEventsTopic.grantPublish(confirmFn);
 
+    // ─── List Uploads Lambda ───
+    const listUploadsFn = new lambdaNode.NodejsFunction(this, "ListUploadsFunction", {
+      ...sharedProps,
+      entry: path.join(lambdaDir, "list-uploads", "index.ts"),
+      handler: "handler",
+    });
+
+    table.grant(listUploadsFn, "dynamodb:Scan");
+    listUploadsFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:GetObject"],
+        resources: [bucket.arnForObjects(`${UPLOAD_PREFIX}*`)],
+      })
+    );
+
     // ─── Health Lambda ───
     const healthFn = new lambdaNode.NodejsFunction(this, "HealthFunction", {
       ...sharedProps,
@@ -115,16 +184,23 @@ export class VibeShareStack extends cdk.Stack {
       environment: {}, // no env needed
     });
 
+    // ─── JWT Authorizer (Cognito) ───
+    const jwtAuthorizer = new apigatewayv2Authorizers.HttpJwtAuthorizer(
+      "CognitoAuthorizer",
+      `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+      { jwtAudience: [userPoolClient.userPoolClientId] }
+    );
+
     // ─── API Gateway HTTP API ───
     const api = new apigatewayv2.HttpApi(this, "VibeShareApi", {
       description: "codespeak-vibe-share upload API",
       corsPreflight: {
-        allowOrigins: config.corsAllowedOrigins,
+        allowOrigins: ["*"],
         allowMethods: [
           apigatewayv2.CorsHttpMethod.POST,
           apigatewayv2.CorsHttpMethod.GET,
         ],
-        allowHeaders: ["Content-Type"],
+        allowHeaders: ["Content-Type", "Authorization"],
       },
     });
 
@@ -156,6 +232,16 @@ export class VibeShareStack extends cdk.Stack {
       ),
     });
 
+    api.addRoutes({
+      path: "/api/v1/uploads",
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new apigatewayv2Integrations.HttpLambdaIntegration(
+        "ListUploadsIntegration",
+        listUploadsFn
+      ),
+      authorizer: jwtAuthorizer,
+    });
+
     // ─── Throttling ───
     // HTTP API v2 throttling is set on the stage
     const stage = api.defaultStage?.node.defaultChild as apigatewayv2.CfnStage;
@@ -181,6 +267,40 @@ export class VibeShareStack extends cdk.Stack {
       api,
       domainName: customDomain,
       stage: api.defaultStage!,
+    });
+
+    // ─── Web UI (S3 + CloudFront) ───
+    const webUiBucket = new s3.Bucket(this, "WebUiBucket", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
+    const webUiDistribution = new cloudfront.Distribution(this, "WebUiDistribution", {
+      defaultBehavior: {
+        origin: cloudfrontOrigins.S3BucketOrigin.withOriginAccessControl(webUiBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+      defaultRootObject: "index.html",
+      errorResponses: [
+        {
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: "/index.html",
+        },
+        {
+          httpStatus: 404,
+          responseHttpStatus: 200,
+          responsePagePath: "/index.html",
+        },
+      ],
+    });
+
+    new s3deploy.BucketDeployment(this, "WebUiDeployment", {
+      sources: [s3deploy.Source.asset(path.join(__dirname, "..", "web-ui"))],
+      destinationBucket: webUiBucket,
+      distribution: webUiDistribution,
+      distributionPaths: ["/*"],
     });
 
     // ─── Monitoring ───
@@ -295,6 +415,26 @@ export class VibeShareStack extends cdk.Stack {
     new cdk.CfnOutput(this, "CustomDomainHostedZoneId", {
       value: customDomain.regionalHostedZoneId,
       description: "Hosted zone ID (for reference)",
+    });
+
+    new cdk.CfnOutput(this, "WebUiUrl", {
+      value: `https://${webUiDistribution.distributionDomainName}`,
+      description: "Web UI URL (CloudFront)",
+    });
+
+    new cdk.CfnOutput(this, "CognitoUserPoolId", {
+      value: userPool.userPoolId,
+      description: "Cognito User Pool ID (for creating users via CLI)",
+    });
+
+    new cdk.CfnOutput(this, "CognitoClientId", {
+      value: userPoolClient.userPoolClientId,
+      description: "Cognito App Client ID (for web UI config)",
+    });
+
+    new cdk.CfnOutput(this, "CognitoDomain", {
+      value: `${config.cognitoDomainPrefix}.auth.${this.region}.amazoncognito.com`,
+      description: "Cognito hosted UI domain",
     });
   }
 }
