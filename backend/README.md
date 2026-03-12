@@ -5,12 +5,14 @@ Serverless backend for the codespeak-vibe-share CLI. Provides presigned S3 URLs 
 ## Architecture
 
 - **API Gateway HTTP API** — routes + rate limiting (burst 10, rate 5/sec)
-- **3 Lambda functions** (Node.js 20, ARM64):
+- **4 Lambda functions** (Node.js 20, ARM64):
   - `POST /api/v1/presign` — validates request, generates presigned S3 PUT URL, writes metadata to DynamoDB
   - `POST /api/v1/confirm` — verifies S3 object exists, marks upload confirmed
   - `GET /health` — returns `{ status: "ok" }`
+  - `SlackNotify` — SNS-triggered, forwards alarm notifications to Slack
 - **S3 bucket** — stores uploaded zips (max 5 GB each, no auto-deletion)
-- **DynamoDB table** — tracks upload metadata (on-demand billing)
+- **DynamoDB table** — tracks upload metadata (on-demand billing, point-in-time recovery enabled)
+- **SNS topic + CloudWatch alarms** — alerts on Lambda errors, API 4xx/5xx rates → email + Slack
 
 ## Prerequisites
 
@@ -27,6 +29,20 @@ Serverless backend for the codespeak-vibe-share CLI. Provides presigned S3 URLs 
 cd backend
 npm install
 ```
+
+## SSM Parameters
+
+The Slack notification Lambda reads its webhook URL from SSM at runtime. Create it before deploying:
+
+```bash
+aws ssm put-parameter \
+  --name /vibe-share/slack-webhook-url \
+  --type SecureString \
+  --value "https://hooks.slack.com/services/YOUR/WEBHOOK/URL" \
+  --profile YOUR_PROFILE
+```
+
+The parameter name is configured in [`lib/config.ts`](lib/config.ts). The alarm email address is also configured there.
 
 ## Deploy
 
