@@ -56,12 +56,58 @@ function renderUploads(uploads) {
     <tr>
       <td>${escapeHtml(u.filename)}</td>
       <td>${formatSize(u.sizeBytes)}</td>
-      <td>${escapeHtml(u.userName || u.userEmail || "—")}</td>
+      <td>${formatUser(u)}</td>
+      <td>${formatRepoUrl(u.repoUrl)}</td>
       <td>${formatDate(u.confirmedAt || u.createdAt)}</td>
       <td><a href="${escapeHtml(u.downloadUrl)}" class="download-link">Download</a></td>
     </tr>`
     )
     .join("");
+}
+
+function formatUser(u) {
+  const name = u.userName || u.userEmail || "—";
+  if (u.userEmail) {
+    return `<a href="mailto:${escapeHtml(u.userEmail)}" class="download-link">${escapeHtml(name)}</a>`;
+  }
+  return escapeHtml(name);
+}
+
+function formatRepoUrl(raw) {
+  if (!raw) return "—";
+
+  // Try to extract user/repo from any GitHub URL form:
+  //   git@github.com:user/repo.git
+  //   ssh://git@github.com/user/repo
+  //   git+ssh://git@github.com/user/repo.git
+  //   git://github.com/user/repo.git
+  //   git+https://github.com/user/repo.git
+  //   https://github.com/user/repo.git
+  //   http://github.com/user/repo
+  //   github.com/user/repo
+  const patterns = [
+    /^(?:git@|ssh:\/\/git@|git\+ssh:\/\/git@)github\.com[:/](.+?)(?:\.git)?\/?$/,
+    /^(?:git\+https?:\/\/|git:\/\/|https?:\/\/)github\.com\/(.+?)(?:\.git)?\/?$/,
+    /^github\.com\/(.+?)(?:\.git)?\/?$/,
+  ];
+
+  for (const pat of patterns) {
+    const m = raw.match(pat);
+    if (m) {
+      const path = m[1].replace(/\/$/, "");
+      const parts = path.split("/");
+      const label = parts.slice(0, 2).join("/");
+      const href = `https://github.com/${path}`;
+      return `<a href="${escapeHtml(href)}" class="download-link" target="_blank">${escapeHtml(label)}</a>`;
+    }
+  }
+
+  // Non-GitHub URL: show as clickable link
+  if (raw.match(/^https?:\/\//)) {
+    return `<a href="${escapeHtml(raw)}" class="download-link" target="_blank">${escapeHtml(raw)}</a>`;
+  }
+
+  return escapeHtml(raw);
 }
 
 function escapeHtml(str) {

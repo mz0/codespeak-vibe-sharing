@@ -42,6 +42,7 @@ export async function handler(
         confirmedAt: r.confirmedAt,
         userName: r.userName,
         userEmail: r.userEmail,
+        repoUrl: r.repoUrl,
         downloadUrl: await buildDownloadUrl(r.s3Key, r.filename),
       }))
     );
