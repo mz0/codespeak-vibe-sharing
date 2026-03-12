@@ -74,7 +74,7 @@ export async function getUploadConsent(
 
   return confirm({
     message: "Do you consent to sharing these files?",
-    default: false, // Default NO — user must actively opt in
+    default: true,
   });
 }
 
