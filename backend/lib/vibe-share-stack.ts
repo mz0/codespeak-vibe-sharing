@@ -80,8 +80,8 @@ export class VibeShareStack extends cdk.Stack {
           cognito.OAuthScope.EMAIL,
           cognito.OAuthScope.PROFILE,
         ],
-        callbackUrls: ["https://dzy3mo6yrryh.cloudfront.net/callback.html"],
-        logoutUrls: ["https://dzy3mo6yrryh.cloudfront.net/"],
+        callbackUrls: ["https://admin.vibe-share.codespeak.dev/callback.html"],
+        logoutUrls: ["https://admin.vibe-share.codespeak.dev/"],
       },
       authFlows: { userSrp: true },
     });
@@ -276,11 +276,19 @@ export class VibeShareStack extends cdk.Stack {
       autoDeleteObjects: true,
     });
 
+    const webUiCert = acm.Certificate.fromCertificateArn(
+      this,
+      "WebUiCert",
+      "arn:aws:acm:us-east-1:703825340529:certificate/b7cb671e-e87d-4079-8691-9aeffa939a42"
+    );
+
     const webUiDistribution = new cloudfront.Distribution(this, "WebUiDistribution", {
       defaultBehavior: {
         origin: cloudfrontOrigins.S3BucketOrigin.withOriginAccessControl(webUiBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       },
+      domainNames: ["admin.vibe-share.codespeak.dev"],
+      certificate: webUiCert,
       defaultRootObject: "index.html",
       errorResponses: [
         {
