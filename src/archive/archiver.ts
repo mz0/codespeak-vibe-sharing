@@ -5,11 +5,28 @@ import archiver from "archiver";
 import type { ArchiveManifest } from "./manifest.js";
 import type { AgentProvider, DiscoveredSession } from "../sessions/types.js";
 
+export interface GitProjectInput {
+  type: "git";
+  root: string;
+  gitStatusOutput: string;
+  gitDiffOutput: string;
+  gitDiffStagedOutput: string;
+  fileListing: string;
+  untrackedFiles: string[];
+  bundlePath: string;
+}
+
+export interface NonGitProjectInput {
+  type: "non-git";
+  root: string;
+  files: string[];
+}
+
+export type ProjectInput = GitProjectInput | NonGitProjectInput;
+
 export interface ArchiveInput {
-  /** Absolute path to the project root */
-  projectRoot: string;
-  /** Project files relative to projectRoot */
-  projectFiles: string[];
+  /** Project data (git or non-git) */
+  project: ProjectInput;
   /** Sessions grouped by agent, with their provider for file resolution */
   sessionsByAgent: Map<
     string,
@@ -59,32 +76,32 @@ export async function createArchive(
   });
 
   // Add project files
-  const totalProjectFiles = input.projectFiles.length;
-  for (let i = 0; i < input.projectFiles.length; i++) {
-    const relPath = input.projectFiles[i];
-    const absPath = path.join(input.projectRoot, relPath);
-    // Use forward slashes in zip paths
-    const zipEntryPath = `project/${relPath.replace(/\\/g, "/")}`;
-
-    try {
-      archive.file(absPath, { name: zipEntryPath });
-    } catch {
-      // Skip files that can't be read
-    }
-
-    input.onProgress?.({
-      phase: "project-files",
-      current: i + 1,
-      total: totalProjectFiles,
-    });
+  if (input.project.type === "git") {
+    addGitProject(archive, input.project, input.onProgress);
+  } else {
+    addNonGitProject(archive, input.project, input.onProgress);
   }
 
   // Add session files
   let sessionFileCount = 0;
   let totalSessionFiles = 0;
+  const addedSessionPaths = new Set<string>();
 
-  // Count total session files first
+  // Collect all files first (provider-level + per-session) for counting
+  const providerFileMap = new Map<string, string[]>();
   for (const [, { provider, sessions }] of input.sessionsByAgent) {
+    // Provider-level files (entire directory captures like Claude Code)
+    if (provider.getProviderFiles) {
+      const hasSelected = sessions.some((s) =>
+        input.selectedSessionIds.has(s.sessionId),
+      );
+      if (hasSelected) {
+        const files = await provider.getProviderFiles();
+        providerFileMap.set(provider.slug, files);
+        totalSessionFiles += files.length;
+      }
+    }
+    // Per-session files
     for (const session of sessions) {
       if (!input.selectedSessionIds.has(session.sessionId)) continue;
       const files = await provider.getSessionFiles(session);
@@ -92,15 +109,61 @@ export async function createArchive(
     }
   }
 
+  // Add provider-level files (preserving directory structure)
+  for (const [, { provider }] of input.sessionsByAgent) {
+    const providerFiles = providerFileMap.get(provider.slug);
+    if (!providerFiles) continue;
+
+    const archiveRoot = provider.getArchiveRoot?.();
+
+    for (const absPath of providerFiles) {
+      let zipEntryPath: string;
+      if (archiveRoot && absPath.startsWith(archiveRoot)) {
+        const relPath = path.relative(archiveRoot, absPath);
+        zipEntryPath = `sessions/${path.basename(archiveRoot)}/${relPath.replace(/\\/g, "/")}`;
+      } else {
+        // Fallback for files outside archive root
+        const fileName = path.basename(absPath);
+        zipEntryPath = `sessions/${provider.slug}/${fileName}`;
+      }
+
+      if (addedSessionPaths.has(zipEntryPath)) continue;
+      addedSessionPaths.add(zipEntryPath);
+
+      try {
+        archive.file(absPath, { name: zipEntryPath });
+      } catch {
+        // Skip unreadable files
+      }
+
+      sessionFileCount++;
+      input.onProgress?.({
+        phase: "sessions",
+        current: sessionFileCount,
+        total: totalSessionFiles,
+      });
+    }
+  }
+
+  // Add per-session files (for providers without getProviderFiles)
   for (const [, { provider, sessions }] of input.sessionsByAgent) {
     for (const session of sessions) {
       if (!input.selectedSessionIds.has(session.sessionId)) continue;
 
       const files = await provider.getSessionFiles(session);
       for (const absPath of files) {
-        const fileName = path.basename(absPath);
-        // Organize by agent slug, then session
-        const zipEntryPath = `sessions/${provider.slug}/${session.sessionId}/${fileName}`;
+        const archiveRoot = provider.getArchiveRoot?.();
+        let zipEntryPath: string;
+        if (archiveRoot && absPath.startsWith(archiveRoot)) {
+          const relPath = path.relative(archiveRoot, absPath);
+          zipEntryPath = `sessions/${path.basename(archiveRoot)}/${relPath.replace(/\\/g, "/")}`;
+        } else {
+          const fileName = path.basename(absPath);
+          zipEntryPath = `sessions/${provider.slug}/${session.sessionId}/${fileName}`;
+        }
+
+        if (addedSessionPaths.has(zipEntryPath)) continue;
+        addedSessionPaths.add(zipEntryPath);
 
         try {
           archive.file(absPath, { name: zipEntryPath });
@@ -125,6 +188,78 @@ export async function createArchive(
 
   const stat = fs.statSync(zipPath);
   return { zipPath, sizeBytes: stat.size };
+}
+
+function addGitProject(
+  archive: archiver.Archiver,
+  project: GitProjectInput,
+  onProgress?: ArchiveInput["onProgress"],
+): void {
+  // Generated text files
+  archive.append(project.gitStatusOutput || "(empty)", {
+    name: "project/git-status.txt",
+  });
+  archive.append(project.gitDiffOutput || "(no unstaged changes)", {
+    name: "project/git-diff.txt",
+  });
+  archive.append(project.gitDiffStagedOutput || "(no staged changes)", {
+    name: "project/git-diff-staged.txt",
+  });
+  archive.append(project.fileListing || "(empty)", {
+    name: "project/file-listing.txt",
+  });
+
+  // Git bundle
+  try {
+    archive.file(project.bundlePath, { name: "project/repo.bundle" });
+  } catch {
+    // Bundle may not exist if git bundle failed
+  }
+
+  // Untracked files
+  const total = project.untrackedFiles.length;
+  for (let i = 0; i < project.untrackedFiles.length; i++) {
+    const relPath = project.untrackedFiles[i];
+    const absPath = path.join(project.root, relPath);
+    const zipEntryPath = `project/untracked/${relPath.replace(/\\/g, "/")}`;
+
+    try {
+      archive.file(absPath, { name: zipEntryPath });
+    } catch {
+      // Skip files that can't be read
+    }
+
+    onProgress?.({
+      phase: "project-files",
+      current: i + 1,
+      total: total + 4, // +4 for the text files
+    });
+  }
+}
+
+function addNonGitProject(
+  archive: archiver.Archiver,
+  project: NonGitProjectInput,
+  onProgress?: ArchiveInput["onProgress"],
+): void {
+  const totalProjectFiles = project.files.length;
+  for (let i = 0; i < project.files.length; i++) {
+    const relPath = project.files[i];
+    const absPath = path.join(project.root, relPath);
+    const zipEntryPath = `project/${relPath.replace(/\\/g, "/")}`;
+
+    try {
+      archive.file(absPath, { name: zipEntryPath });
+    } catch {
+      // Skip files that can't be read
+    }
+
+    onProgress?.({
+      phase: "project-files",
+      current: i + 1,
+      total: totalProjectFiles,
+    });
+  }
 }
 
 /**

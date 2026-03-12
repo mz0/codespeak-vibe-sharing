@@ -1,10 +1,11 @@
 import path from "node:path";
 import chalk from "chalk";
 import ora from "ora";
-import { detectProjectFiles } from "./git/git-state.js";
+import { detectProjectFiles, cleanupBundle } from "./git/git-state.js";
 import { discoverAllSessions } from "./sessions/discovery.js";
 import { buildManifest } from "./archive/manifest.js";
 import { createArchive, cleanupArchive } from "./archive/archiver.js";
+import type { ProjectInput } from "./archive/archiver.js";
 import { uploadArchive, isBackendAvailable, saveLocally } from "./upload/upload.js";
 import {
   showPrivacyNoticeAndConsent,
@@ -15,6 +16,7 @@ import {
   displayFileList,
   displaySessionSummary,
   displayArchiveSummary,
+  displayGitProjectSummary,
   displayExcludePatterns,
   formatBytes,
 } from "./ui/display.js";
@@ -40,6 +42,7 @@ export interface CliOptions {
 
 export async function run(options: CliOptions): Promise<void> {
   let zipPath: string | null = null;
+  let bundlePath: string | null = null;
 
   try {
     // ─── Step 1: Privacy Notice ───
@@ -55,31 +58,54 @@ export async function run(options: CliOptions): Promise<void> {
     const projectState = await detectProjectFiles(cwd);
     spinner.stop();
 
-    let projectFiles: string[];
+    let projectInput: ProjectInput;
+    let projectFileCount: number;
 
     if (projectState.isGitRepo) {
+      bundlePath = projectState.bundlePath;
+
       console.log(
         chalk.dim(
           `Git repository detected at ${projectState.root} (${projectState.branch ?? "unknown branch"})`,
         ),
       );
 
-      projectFiles = [...projectState.trackedFiles];
-
-      // Handle untracked files
+      // Let user select which untracked files to include
+      let selectedUntracked = projectState.untrackedFiles;
       if (projectState.untrackedFiles.length > 0) {
-        const selected = await selectUntrackedFiles(
+        selectedUntracked = await selectUntrackedFiles(
           projectState.untrackedFiles,
         );
-        projectFiles.push(...selected);
       }
+
+      projectInput = {
+        type: "git",
+        root: projectState.root,
+        gitStatusOutput: projectState.gitStatusOutput,
+        gitDiffOutput: projectState.gitDiffOutput,
+        gitDiffStagedOutput: projectState.gitDiffStagedOutput,
+        fileListing: projectState.fileListing,
+        untrackedFiles: selectedUntracked,
+        bundlePath: projectState.bundlePath,
+      };
+
+      // Count: text files + bundle + untracked files
+      projectFileCount = 4 + 1 + selectedUntracked.length;
+
+      displayGitProjectSummary(selectedUntracked.length);
     } else {
       console.log(chalk.dim("Not a git repository. Using exclude patterns."));
       displayExcludePatterns(getDefaultExcludeDescription());
-      projectFiles = projectState.allFiles;
-    }
 
-    displayFileList(projectFiles, "Project files");
+      projectInput = {
+        type: "non-git",
+        root: projectState.root,
+        files: projectState.allFiles,
+      };
+      projectFileCount = projectState.allFiles.length;
+
+      displayFileList(projectState.allFiles, "Project files");
+    }
 
     // ─── Step 3: Discover sessions ───
     let sessionsByAgent = new Map<
@@ -112,6 +138,13 @@ export async function run(options: CliOptions): Promise<void> {
     // ─── Step 4: Count session files ───
     let sessionFileCount = 0;
     for (const [, { provider, sessions }] of sessionsByAgent) {
+      const hasSelected = sessions.some((s) =>
+        selectedSessionIds.has(s.sessionId),
+      );
+      if (hasSelected && provider.getProviderFiles) {
+        const files = await provider.getProviderFiles();
+        sessionFileCount += files.length;
+      }
       for (const session of sessions) {
         if (!selectedSessionIds.has(session.sessionId)) continue;
         const files = await provider.getSessionFiles(session);
@@ -128,11 +161,9 @@ export async function run(options: CliOptions): Promise<void> {
         }
       }
     }
-    // Add rough project file size estimate (we don't stat every file for speed)
-    // Session sizes are known precisely; project files are typically smaller
 
     displayArchiveSummary(
-      projectFiles.length,
+      projectFileCount,
       sessionFileCount,
       totalSizeEstimate,
     );
@@ -171,7 +202,11 @@ export async function run(options: CliOptions): Promise<void> {
       isGitRepo: projectState.isGitRepo,
       gitBranch: projectState.isGitRepo ? projectState.branch : undefined,
       gitCommit: projectState.isGitRepo ? projectState.commit : undefined,
-      projectFileCount: projectFiles.length,
+      hasBundle: projectState.isGitRepo ? true : undefined,
+      untrackedFileCount: projectState.isGitRepo
+        ? projectState.untrackedFiles.length
+        : undefined,
+      projectFileCount,
       sessionFileCount,
       totalSizeBytes: totalSizeEstimate,
       sessionsByAgent: filteredSessionsByAgent,
@@ -180,8 +215,7 @@ export async function run(options: CliOptions): Promise<void> {
     const archiveSpinner = ora("Creating archive...").start();
 
     const { zipPath: resultZipPath, sizeBytes } = await createArchive({
-      projectRoot: projectState.root,
-      projectFiles,
+      project: projectInput,
       sessionsByAgent,
       selectedSessionIds,
       manifest,
@@ -236,7 +270,7 @@ export async function run(options: CliOptions): Promise<void> {
       } else {
         // Get upload consent
         const uploadConsent = await getUploadConsent(
-          projectFiles.length + sessionFileCount,
+          projectFileCount + sessionFileCount,
           formatBytes(sizeBytes),
         );
 
@@ -299,9 +333,12 @@ export async function run(options: CliOptions): Promise<void> {
     );
     process.exit(1);
   } finally {
-    // Clean up temp zip
+    // Clean up temp files
     if (zipPath) {
       cleanupArchive(zipPath);
+    }
+    if (bundlePath) {
+      cleanupBundle(bundlePath);
     }
   }
 }

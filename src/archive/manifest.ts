@@ -11,6 +11,8 @@ export interface ArchiveManifest {
     isGitRepo: boolean;
     gitBranch?: string;
     gitCommit?: string;
+    hasBundle?: boolean;
+    untrackedFileCount?: number;
   };
   agents: Record<
     string,
@@ -36,6 +38,8 @@ export function buildManifest(opts: {
   isGitRepo: boolean;
   gitBranch?: string | null;
   gitCommit?: string | null;
+  hasBundle?: boolean;
+  untrackedFileCount?: number;
   projectFileCount: number;
   sessionFileCount: number;
   totalSizeBytes: number;
@@ -64,6 +68,8 @@ export function buildManifest(opts: {
       isGitRepo: opts.isGitRepo,
       ...(opts.gitBranch && { gitBranch: opts.gitBranch }),
       ...(opts.gitCommit && { gitCommit: opts.gitCommit }),
+      ...(opts.hasBundle && { hasBundle: true }),
+      ...(opts.untrackedFileCount != null && { untrackedFileCount: opts.untrackedFileCount }),
     },
     agents,
     files: {

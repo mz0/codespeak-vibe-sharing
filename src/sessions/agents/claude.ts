@@ -1,8 +1,10 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
   CLAUDE_PROJECTS_DIR,
   CLAUDE_HISTORY_FILE,
+  CLAUDE_DIR,
 } from "../../config.js";
 import { encodeProjectPath } from "../../utils/paths.js";
 import {
@@ -10,7 +12,9 @@ import {
   fileExists,
   safeReadJson,
   readJsonl,
+  readLines,
   getFileSize,
+  walkDirectoryAbsolute,
 } from "../../utils/fs-helpers.js";
 import type { AgentProvider, DiscoveredSession } from "../types.js";
 
@@ -44,15 +48,23 @@ interface HistoryEntry {
   display?: string;
 }
 
-// Map from sessionId → list of absolute file paths
-const sessionFileCache = new Map<string, string[]>();
-
 export class ClaudeCodeProvider implements AgentProvider {
   readonly name = "Claude Code";
   readonly slug = "claude-code";
 
+  private _sessionDir: string | null = null;
+  private _providerFiles: string[] | null = null;
+
   async detect(): Promise<boolean> {
     return directoryExists(CLAUDE_PROJECTS_DIR);
+  }
+
+  getSessionDir(): string | null {
+    return this._sessionDir;
+  }
+
+  getArchiveRoot(): string {
+    return CLAUDE_DIR;
   }
 
   async findSessions(projectPath: string): Promise<DiscoveredSession[]> {
@@ -61,6 +73,7 @@ export class ClaudeCodeProvider implements AgentProvider {
     const sessionDir = path.join(CLAUDE_PROJECTS_DIR, encoded);
 
     if (await directoryExists(sessionDir)) {
+      this._sessionDir = sessionDir;
       const sessions = await this.scanSessionDir(sessionDir, projectPath);
       if (sessions.length > 0) return sessions;
     }
@@ -69,8 +82,23 @@ export class ClaudeCodeProvider implements AgentProvider {
     return this.scanHistory(projectPath);
   }
 
-  async getSessionFiles(session: DiscoveredSession): Promise<string[]> {
-    return sessionFileCache.get(session.sessionId) ?? [];
+  async getSessionFiles(_session: DiscoveredSession): Promise<string[]> {
+    // All files are returned via getProviderFiles() instead
+    return [];
+  }
+
+  async getProviderFiles(): Promise<string[]> {
+    if (this._providerFiles) return this._providerFiles;
+    if (!this._sessionDir) return [];
+
+    // Walk the entire project session directory
+    const dirFiles = await walkDirectoryAbsolute(this._sessionDir);
+
+    // Discover referenced plan/debug files from JSONL content
+    const referencedFiles = await this.discoverReferencedFiles(dirFiles);
+
+    this._providerFiles = [...dirFiles, ...referencedFiles];
+    return this._providerFiles;
   }
 
   private async scanSessionDir(
@@ -90,16 +118,8 @@ export class ClaudeCodeProvider implements AgentProvider {
       if (matching.length > 0) {
         const sessions: DiscoveredSession[] = [];
         for (const entry of matching) {
-          const files = await this.collectSessionFiles(
-            sessionDir,
-            entry.sessionId,
-          );
-          sessionFileCache.set(entry.sessionId, files);
-
-          let totalSize = 0;
-          for (const f of files) {
-            totalSize += await getFileSize(f);
-          }
+          const jsonlPath = path.join(sessionDir, `${entry.sessionId}.jsonl`);
+          const sizeBytes = await getFileSize(jsonlPath);
 
           sessions.push({
             agentName: this.name,
@@ -109,21 +129,9 @@ export class ClaudeCodeProvider implements AgentProvider {
             messageCount: entry.messageCount ?? null,
             created: entry.created ?? null,
             modified: entry.modified ?? null,
-            sizeBytes: totalSize,
+            sizeBytes,
           });
         }
-
-        // Also cache the index file itself
-        if (await fileExists(indexPath)) {
-          for (const s of sessions) {
-            const existing = sessionFileCache.get(s.sessionId) ?? [];
-            if (!existing.includes(indexPath)) {
-              existing.push(indexPath);
-              sessionFileCache.set(s.sessionId, existing);
-            }
-          }
-        }
-
         return sessions;
       }
     }
@@ -192,13 +200,7 @@ export class ClaudeCodeProvider implements AgentProvider {
 
       if (!belongsToProject) continue;
 
-      const files = await this.collectSessionFiles(sessionDir, sessionId);
-      sessionFileCache.set(sessionId, files);
-
-      let totalSize = 0;
-      for (const f of files) {
-        totalSize += await getFileSize(f);
-      }
+      const sizeBytes = await getFileSize(jsonlPath);
 
       sessions.push({
         agentName: this.name,
@@ -208,39 +210,57 @@ export class ClaudeCodeProvider implements AgentProvider {
         messageCount,
         created,
         modified,
-        sizeBytes: totalSize,
+        sizeBytes,
       });
     }
 
     return sessions;
   }
 
-  private async collectSessionFiles(
-    sessionDir: string,
-    sessionId: string,
-  ): Promise<string[]> {
-    const files: string[] = [];
+  /**
+   * Scan JSONL files for references to ~/.claude/plans/ and ~/.claude/debug/ files.
+   * Returns absolute paths of referenced files that exist on disk.
+   */
+  private async discoverReferencedFiles(allFiles: string[]): Promise<string[]> {
+    const homeDir = os.homedir();
+    const plansDir = path.join(homeDir, ".claude", "plans");
+    const debugDir = path.join(homeDir, ".claude", "debug");
+    // Escape for regex: replace path separators and special chars
+    const plansPrefix = plansDir + path.sep;
+    const debugPrefix = debugDir + path.sep;
 
-    // Main JSONL file
-    const jsonlPath = path.join(sessionDir, `${sessionId}.jsonl`);
-    if (await fileExists(jsonlPath)) {
-      files.push(jsonlPath);
-    }
+    const found = new Set<string>();
 
-    // Subagent directory
-    const subagentsDir = path.join(sessionDir, sessionId, "subagents");
-    if (await directoryExists(subagentsDir)) {
+    // Build regex that matches absolute paths to plan/debug files
+    const escapedPlans = escapeRegex(plansPrefix);
+    const escapedDebug = escapeRegex(debugPrefix);
+    const pattern = new RegExp(
+      `(?:${escapedPlans}|${escapedDebug})[^"\\\\\\s]+`,
+      "g",
+    );
+
+    for (const file of allFiles) {
+      if (!file.endsWith(".jsonl")) continue;
+
       try {
-        const subEntries = await fs.readdir(subagentsDir);
-        for (const sub of subEntries) {
-          files.push(path.join(subagentsDir, sub));
+        for await (const line of readLines(file)) {
+          for (const match of line.matchAll(pattern)) {
+            found.add(match[0]);
+          }
         }
       } catch {
-        // Skip if unreadable
+        // Skip unreadable files
       }
     }
 
-    return files;
+    // Verify files exist
+    const existing: string[] = [];
+    for (const f of found) {
+      if (await fileExists(f)) {
+        existing.push(f);
+      }
+    }
+    return existing;
   }
 
   private async scanHistory(
@@ -271,13 +291,8 @@ export class ClaudeCodeProvider implements AgentProvider {
         for (const sid of sessionIds) {
           const jsonlPath = path.join(dirPath, `${sid}.jsonl`);
           if (await fileExists(jsonlPath)) {
-            const files = await this.collectSessionFiles(dirPath, sid);
-            sessionFileCache.set(sid, files);
-
-            let totalSize = 0;
-            for (const f of files) {
-              totalSize += await getFileSize(f);
-            }
+            if (!this._sessionDir) this._sessionDir = dirPath;
+            const sizeBytes = await getFileSize(jsonlPath);
 
             sessions.push({
               agentName: this.name,
@@ -287,7 +302,7 @@ export class ClaudeCodeProvider implements AgentProvider {
               messageCount: null,
               created: null,
               modified: null,
-              sizeBytes: totalSize,
+              sizeBytes,
             });
             sessionIds.delete(sid);
           }
@@ -299,4 +314,8 @@ export class ClaudeCodeProvider implements AgentProvider {
 
     return sessions;
   }
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

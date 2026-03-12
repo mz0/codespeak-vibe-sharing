@@ -92,6 +92,26 @@ export function displayArchiveSummary(
 }
 
 /**
+ * Display a summary of what will be shared from a git project.
+ */
+export function displayGitProjectSummary(
+  untrackedFileCount: number,
+): void {
+  console.log();
+  console.log(chalk.bold("Project data to share:"));
+  console.log("  git status      -> git-status.txt");
+  console.log("  git diff        -> git-diff.txt");
+  console.log("  git diff staged -> git-diff-staged.txt");
+  console.log("  file listing    -> file-listing.txt");
+  console.log("  git bundle      -> repo.bundle (full history)");
+  if (untrackedFileCount > 0) {
+    console.log(
+      `  untracked files -> untracked/ (${untrackedFileCount} file${untrackedFileCount !== 1 ? "s" : ""})`,
+    );
+  }
+}
+
+/**
  * Display the list of excluded patterns for non-git projects.
  */
 export function displayExcludePatterns(patterns: string[]): void {

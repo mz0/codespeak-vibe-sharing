@@ -60,6 +60,50 @@ export async function* readJsonl<T>(
 }
 
 /**
+ * Read a file line by line, yielding raw strings.
+ */
+export async function* readLines(
+  filePath: string,
+): AsyncGenerator<string, void, undefined> {
+  const stream = createReadStream(filePath, { encoding: "utf-8" });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+  for await (const line of rl) {
+    yield line;
+  }
+}
+
+/**
+ * Recursively collect all file paths under a directory (absolute paths).
+ */
+export async function walkDirectoryAbsolute(
+  root: string,
+): Promise<string[]> {
+  const results: string[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile()) {
+        results.push(fullPath);
+      }
+    }
+  }
+
+  await walk(root);
+  return results;
+}
+
+/**
  * Get file size in bytes. Returns 0 on error.
  */
 export async function getFileSize(filePath: string): Promise<number> {

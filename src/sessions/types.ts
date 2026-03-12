@@ -34,6 +34,26 @@ export interface AgentProvider {
 
   /**
    * Get the absolute paths of all files that should be collected for a session.
+   * For providers that use getProviderFiles(), this may return empty.
    */
   getSessionFiles(session: DiscoveredSession): Promise<string[]>;
+
+  /**
+   * Optional: return all files for this provider (entire project session directory
+   * + referenced external files like plans/debug).
+   */
+  getProviderFiles?(): Promise<string[]>;
+
+  /**
+   * Optional: return the base directory for session/provider files.
+   * When provided, the archiver preserves relative paths within this directory.
+   */
+  getSessionDir?(): string | null;
+
+  /**
+   * Optional: base directory for archive path computation. All provider files
+   * under this directory are archived with their relative paths preserved under
+   * sessions/{basename}/. E.g. ~/.claude → sessions/.claude/projects/...
+   */
+  getArchiveRoot?(): string;
 }
