@@ -33,15 +33,15 @@ export function noSessionsFound(): VibeError {
 export function networkError(cause: unknown): VibeError {
   return new VibeError(
     "Could not reach the upload server.",
-    "Check your internet connection, or use --output to save the zip locally.",
+    "Check your internet connection, or use --output to save the zip locally.\nRun with --verbose for details.",
     { cause },
   );
 }
 
-export function uploadFailed(cause: unknown): VibeError {
+export function uploadFailed(step: string, cause: unknown): VibeError {
   return new VibeError(
-    "Upload failed.",
-    "Try again, or use --output to save the zip locally.",
+    `Upload failed at ${step} step.`,
+    "Try again, or use --output to save the zip locally.\nRun with --verbose for details.",
     { cause },
   );
 }

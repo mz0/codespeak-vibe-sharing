@@ -50,7 +50,8 @@ export async function uploadArchive(
     });
 
     if (!response.ok) {
-      throw new Error(`Presign request failed: ${response.status} ${response.statusText}`);
+      const body = await response.text().catch(() => "");
+      throw new Error(`Presign failed (${response.status}): ${body}`);
     }
 
     presign = (await response.json()) as PresignResponse;
@@ -73,13 +74,14 @@ export async function uploadArchive(
     });
 
     if (!response.ok) {
-      throw new Error(`S3 upload failed: ${response.status} ${response.statusText}`);
+      const body = await response.text().catch(() => "");
+      throw new Error(`S3 upload failed (${response.status}): ${body}`);
     }
 
     onProgress?.(100);
   } catch (err) {
     if (err instanceof VibeError) throw err;
-    throw uploadFailed(err);
+    throw uploadFailed("S3 upload", err);
   }
 
   // Step 3: Confirm upload
@@ -91,14 +93,15 @@ export async function uploadArchive(
     });
 
     if (!response.ok) {
-      throw new Error(`Confirm request failed: ${response.status} ${response.statusText}`);
+      const body = await response.text().catch(() => "");
+      throw new Error(`Confirm failed (${response.status}): ${body}`);
     }
 
     const result = (await response.json()) as ConfirmResponse;
     return { shareUrl: result.shareUrl, uploadId: presign.uploadId };
   } catch (err) {
     if (err instanceof VibeError) throw err;
-    throw uploadFailed(err);
+    throw uploadFailed("confirm", err);
   }
 }
 

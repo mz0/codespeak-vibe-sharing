@@ -277,6 +277,10 @@ export async function run(options: CliOptions): Promise<void> {
       if (err.suggestion) {
         console.error(chalk.dim(err.suggestion));
       }
+      if (options.verbose && err.cause) {
+        console.error();
+        console.error(chalk.dim("Cause:"), err.cause instanceof Error ? err.cause.message : String(err.cause));
+      }
       process.exit(1);
     }
 
