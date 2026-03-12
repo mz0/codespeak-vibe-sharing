@@ -29,7 +29,7 @@ export class VibeShareStack extends cdk.Stack {
       cors: [
         {
           allowedMethods: [s3.HttpMethods.PUT],
-          allowedOrigins: config.corsAllowedOrigins,
+          allowedOrigins: config.s3CorsAllowedOrigins,
           allowedHeaders: ["Content-Type", "Content-Length"],
           maxAge: 3600,
         },
