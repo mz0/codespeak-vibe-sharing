@@ -5,6 +5,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { ok, badRequest, serverError } from "../shared/response";
+import { notifyUploadEvent } from "../shared/notify";
 import type { UploadRecord } from "../shared/types";
 
 const s3 = new S3Client({});
@@ -87,6 +88,12 @@ export async function handler(
         TableName: TABLE_NAME,
         Item: record,
       })
+    );
+
+    const sizeMB = (body.sizeBytes / 1024 / 1024).toFixed(1);
+    await notifyUploadEvent(
+      "New upload requested",
+      `File: ${sanitizedFilename} (${sizeMB} MB)\nUpload ID: ${uploadId}\nIP: ${sourceIp}${body.userName ? `\nUser: ${body.userName}` : ""}${body.repoUrl ? `\nRepo: ${body.repoUrl}` : ""}`
     );
 
     return ok({ uploadUrl, uploadId });

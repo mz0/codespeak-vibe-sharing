@@ -63,6 +63,11 @@ export class VibeShareStack extends cdk.Stack {
       },
     };
 
+    // ─── Upload Events Topic (Slack-only, no email) ───
+    const uploadEventsTopic = new sns.Topic(this, "UploadEventsTopic", {
+      displayName: "VibeShare Upload Events",
+    });
+
     // ─── Presign Lambda ───
     const presignFn = new lambdaNode.NodejsFunction(this, "PresignFunction", {
       ...sharedProps,
@@ -71,18 +76,24 @@ export class VibeShareStack extends cdk.Stack {
       environment: {
         ...sharedEnv,
         PRESIGN_EXPIRY_SECONDS: "300",
+        UPLOAD_EVENTS_TOPIC_ARN: uploadEventsTopic.topicArn,
       },
     });
 
     // Presign needs: PutObject on S3 (to generate presigned URLs) + PutItem on DynamoDB
     bucket.grantPut(presignFn, `${UPLOAD_PREFIX}*`);
     table.grant(presignFn, "dynamodb:PutItem");
+    uploadEventsTopic.grantPublish(presignFn);
 
     // ─── Confirm Lambda ───
     const confirmFn = new lambdaNode.NodejsFunction(this, "ConfirmFunction", {
       ...sharedProps,
       entry: path.join(lambdaDir, "confirm", "index.ts"),
       handler: "handler",
+      environment: {
+        ...sharedEnv,
+        UPLOAD_EVENTS_TOPIC_ARN: uploadEventsTopic.topicArn,
+      },
     });
 
     // Confirm needs: HeadObject on S3 + GetItem/UpdateItem on DynamoDB
@@ -93,6 +104,7 @@ export class VibeShareStack extends cdk.Stack {
       })
     );
     table.grant(confirmFn, "dynamodb:GetItem", "dynamodb:UpdateItem");
+    uploadEventsTopic.grantPublish(confirmFn);
 
     // ─── Health Lambda ───
     const healthFn = new lambdaNode.NodejsFunction(this, "HealthFunction", {
@@ -183,6 +195,9 @@ export class VibeShareStack extends cdk.Stack {
 
     slackWebhookParam.grantRead(slackNotifyFn);
     alarmTopic.addSubscription(
+      new snsSubscriptions.LambdaSubscription(slackNotifyFn)
+    );
+    uploadEventsTopic.addSubscription(
       new snsSubscriptions.LambdaSubscription(slackNotifyFn)
     );
 

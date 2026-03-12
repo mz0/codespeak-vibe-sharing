@@ -3,6 +3,7 @@ import { S3Client, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { ok, badRequest, notFound, serverError } from "../shared/response";
+import { notifyUploadEvent } from "../shared/notify";
 import type { UploadRecord } from "../shared/types";
 
 const s3 = new S3Client({});
@@ -49,6 +50,10 @@ export async function handler(
         })
       );
     } catch {
+      await notifyUploadEvent(
+        "Upload failed",
+        `File not found in S3\nUpload ID: ${record.uploadId}\nFile: ${record.filename}`
+      );
       return badRequest("File not uploaded yet");
     }
 
@@ -64,6 +69,12 @@ export async function handler(
           ":now": new Date().toISOString(),
         },
       })
+    );
+
+    const sizeMB = (record.sizeBytes / 1024 / 1024).toFixed(1);
+    await notifyUploadEvent(
+      "Upload confirmed",
+      `File: ${record.filename} (${sizeMB} MB)\nUpload ID: ${record.uploadId}\nShare URL: ${buildShareUrl(record.uploadId)}`
     );
 
     return ok({ shareUrl: buildShareUrl(record.uploadId) });
