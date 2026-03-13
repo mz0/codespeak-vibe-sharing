@@ -1,6 +1,7 @@
 [X] undefined in download URL in CLI
 [X] Repo URL request when unavailable
 [X] Slack notifications reworked
+  [X] Race condition on slack: bug with the gemini upload
 [X] Mark some users as Internal
 [X] empty bundle bug
 [X] do we work from subfolders???

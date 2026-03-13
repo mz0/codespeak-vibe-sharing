@@ -122,7 +122,7 @@ async function slackUpdateMessage(
 
 interface SlackThread {
   groupKey: string;
-  threadTs: string;
+  threadTs?: string; // undefined while the claiming handler is posting to Slack
   channel: string;
   topLevelText: string;
   createdAt: string;
@@ -136,9 +136,9 @@ async function getThread(groupKey: string): Promise<SlackThread | null> {
   return (Item as SlackThread) ?? null;
 }
 
-async function createThread(
+/** Atomically claim thread creation. Returns true if this invocation won. */
+async function claimThread(
   groupKey: string,
-  threadTs: string,
   channel: string,
   topLevelText: string
 ): Promise<boolean> {
@@ -148,7 +148,6 @@ async function createThread(
         TableName: THREADS_TABLE,
         Item: {
           groupKey,
-          threadTs,
           channel,
           topLevelText,
           createdAt: new Date().toISOString(),
@@ -163,10 +162,24 @@ async function createThread(
       err instanceof Error &&
       err.name === "ConditionalCheckFailedException"
     ) {
-      return false; // Thread was created concurrently
+      return false;
     }
     throw err;
   }
+}
+
+async function setThreadTs(
+  groupKey: string,
+  threadTs: string
+): Promise<void> {
+  await ddb.send(
+    new UpdateCommand({
+      TableName: THREADS_TABLE,
+      Key: { groupKey },
+      UpdateExpression: "SET threadTs = :ts",
+      ExpressionAttributeValues: { ":ts": threadTs },
+    })
+  );
 }
 
 async function updateTopLevelText(
@@ -181,6 +194,53 @@ async function updateTopLevelText(
       ExpressionAttributeValues: { ":text": newText },
     })
   );
+}
+
+/** Poll until the thread record has a threadTs (the winner finished posting). */
+async function awaitThreadTs(
+  groupKey: string,
+  maxAttempts = 10,
+  delayMs = 100
+): Promise<SlackThread | null> {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((r) => setTimeout(r, delayMs));
+    const thread = await getThread(groupKey);
+    if (thread?.threadTs) return thread;
+  }
+  return null;
+}
+
+/**
+ * Ensure a Slack thread exists for this upload. Uses DynamoDB conditional
+ * write as an atomic mutex — exactly one handler wins and creates the
+ * top-level Slack message; all others wait for it.
+ */
+async function ensureThread(
+  groupKey: string,
+  channel: string,
+  event: UploadEvent
+): Promise<SlackThread | null> {
+  const existing = await getThread(groupKey);
+
+  // Thread fully ready
+  if (existing?.threadTs) return existing;
+
+  // Another handler is creating it — wait
+  if (existing) return awaitThreadTs(groupKey);
+
+  // No record yet — try to claim
+  const topText = formatTopLevel(event);
+  const won = await claimThread(groupKey, channel, topText);
+
+  if (won) {
+    // We won: post top-level Slack message and store its ts
+    const ts = await slackPostMessage(channel, topText);
+    await setThreadTs(groupKey, ts);
+    return { groupKey, threadTs: ts, channel, topLevelText: topText, createdAt: "", expiresAt: 0 };
+  }
+
+  // Lost the race — wait for the winner to finish
+  return awaitThreadTs(groupKey);
 }
 
 // ─── Message formatting ───
@@ -231,35 +291,16 @@ function formatFailedReply(event: UploadEvent): string {
 async function handleUploadEvent(event: UploadEvent): Promise<void> {
   const channel = await getChannelId();
   const groupKey = groupKeyFor(event);
+  const thread = await ensureThread(groupKey, channel, event);
 
   if (event.eventType === "presign") {
-    const existing = await getThread(groupKey);
-
-    if (existing) {
-      // Reply in existing thread
-      await slackPostMessage(channel, formatPresignReply(event), existing.threadTs);
+    if (thread) {
+      await slackPostMessage(channel, formatPresignReply(event), thread.threadTs!);
     } else {
-      // Create new top-level message
-      const topText = formatTopLevel(event);
-      const ts = await slackPostMessage(channel, topText);
-
-      const created = await createThread(groupKey, ts, channel, topText);
-      if (!created) {
-        // Lost the race — another Lambda created the thread. Reply instead.
-        const thread = await getThread(groupKey);
-        if (thread) {
-          await slackPostMessage(channel, formatPresignReply(event), thread.threadTs);
-          return;
-        }
-      }
-
-      // Post details as first thread reply
-      await slackPostMessage(channel, formatPresignReply(event), ts);
+      await slackPostMessage(channel, formatPresignReply(event));
     }
   } else if (event.eventType === "confirm") {
-    const thread = await getThread(groupKey);
-    if (thread) {
-      // Update top-level message with download link
+    if (thread?.threadTs) {
       const updatedText = appendDownloadLink(
         thread.topLevelText,
         event.uploadId,
@@ -267,17 +308,12 @@ async function handleUploadEvent(event: UploadEvent): Promise<void> {
       );
       await slackUpdateMessage(channel, thread.threadTs, updatedText);
       await updateTopLevelText(groupKey, updatedText);
-
-      // Post confirmation in thread
       await slackPostMessage(channel, formatConfirmReply(event), thread.threadTs);
     } else {
-      // No thread found — post standalone
-      const text = formatConfirmReply(event);
-      await slackPostMessage(channel, text);
+      await slackPostMessage(channel, formatConfirmReply(event));
     }
   } else if (event.eventType === "confirm-failed") {
-    const thread = await getThread(groupKey);
-    if (thread) {
+    if (thread?.threadTs) {
       await slackPostMessage(channel, formatFailedReply(event), thread.threadTs);
     } else {
       await slackPostMessage(channel, formatFailedReply(event));
