@@ -6,10 +6,12 @@
   "bin": {
     "codespeak-vibe-share": "./dist/index.js"
   },
+  "files": ["dist"],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepublishOnly": "tsc"
   },
   "keywords": ["vibe-coding", "ai-sessions", "sharing"],
   "license": "MIT",
