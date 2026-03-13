@@ -79,6 +79,14 @@ tr:hover {
   background: #fafafa;
 }
 
+tr.internal-row {
+  background: #f0f0f0;
+}
+
+tr.internal-row:hover {
+  background: #e8e8e8;
+}
+
 .download-link {
   color: #2563eb;
   text-decoration: none;

@@ -2,6 +2,8 @@
 [X] Repo URL request when unavailable
 [X] Slack notifications reworked
   [X] Race condition on slack: bug with the gemini upload
+  [X] Mark internal users' Slack messages with :codespeak:
+  [X] Mark web-ui uploads from internal users 🛠️ and grey background
 [X] Mark some users as Internal
 [X] empty bundle bug
 [] webui: persist Show internal uploads in local storage

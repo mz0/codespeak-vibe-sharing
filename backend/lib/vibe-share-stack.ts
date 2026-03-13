@@ -419,6 +419,7 @@ export class VibeShareStack extends cdk.Stack {
         SLACK_BOT_TOKEN_SSM_PARAM: config.slackBotTokenSsmParam,
         SLACK_CHANNEL_ID_SSM_PARAM: config.slackChannelIdSsmParam,
         SLACK_THREADS_TABLE_NAME: slackThreadsTable.tableName,
+        INTERNAL_EMAILS_TABLE_NAME: internalEmailsTable.tableName,
         ADMIN_UI_URL: config.adminUiUrl,
       },
       bundling: { minify: true, sourceMap: true },
@@ -427,6 +428,7 @@ export class VibeShareStack extends cdk.Stack {
     slackBotTokenParam.grantRead(slackNotifyFn);
     slackChannelIdParam.grantRead(slackNotifyFn);
     slackThreadsTable.grantReadWriteData(slackNotifyFn);
+    internalEmailsTable.grantReadData(slackNotifyFn);
     alarmTopic.addSubscription(
       new snsSubscriptions.LambdaSubscription(slackNotifyFn)
     );

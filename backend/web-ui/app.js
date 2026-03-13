@@ -115,16 +115,18 @@ function renderUploads(uploads) {
 
   empty.style.display = "none";
   tbody.innerHTML = uploads
-    .map(
-      (u) => `
-    <tr data-upload-id="${escapeHtml(u.uploadId)}">
-      <td><a href="${escapeHtml(u.downloadUrl)}" class="download-link">${escapeHtml(u.filename)}</a></td>
+    .map((u) => {
+      const isInternal =
+        u.userEmail && internalEmails.has(u.userEmail.toLowerCase());
+      return `
+    <tr data-upload-id="${escapeHtml(u.uploadId)}"${isInternal ? ' class="internal-row"' : ""}>
+      <td>${isInternal ? "\u{1F6E0}\uFE0F " : ""}<a href="${escapeHtml(u.downloadUrl)}" class="download-link">${escapeHtml(u.filename)}</a></td>
       <td>${formatSize(u.sizeBytes)}</td>
       <td>${formatUser(u)}</td>
       <td>${formatRepoUrl(u.repoUrl)}</td>
       <td>${formatDate(u.confirmedAt || u.createdAt)}</td>
-    </tr>`
-    )
+    </tr>`;
+    })
     .join("");
 }
 

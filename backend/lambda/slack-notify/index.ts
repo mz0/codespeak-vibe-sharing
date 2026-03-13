@@ -10,6 +10,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const BOT_TOKEN_PARAM = process.env.SLACK_BOT_TOKEN_SSM_PARAM!;
 const CHANNEL_ID_PARAM = process.env.SLACK_CHANNEL_ID_SSM_PARAM!;
 const THREADS_TABLE = process.env.SLACK_THREADS_TABLE_NAME!;
+const INTERNAL_EMAILS_TABLE = process.env.INTERNAL_EMAILS_TABLE_NAME!;
 const ADMIN_UI_URL = process.env.ADMIN_UI_URL!;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const THREAD_TTL_DAYS = 30;
@@ -218,7 +219,8 @@ async function awaitThreadTs(
 async function ensureThread(
   groupKey: string,
   channel: string,
-  event: UploadEvent
+  event: UploadEvent,
+  internal: boolean
 ): Promise<SlackThread | null> {
   const existing = await getThread(groupKey);
 
@@ -229,7 +231,7 @@ async function ensureThread(
   if (existing) return awaitThreadTs(groupKey);
 
   // No record yet — try to claim
-  const topText = formatTopLevel(event);
+  const topText = formatTopLevel(event, internal);
   const won = await claimThread(groupKey, channel, topText);
 
   if (won) {
@@ -243,19 +245,33 @@ async function ensureThread(
   return awaitThreadTs(groupKey);
 }
 
+// ─── Internal email check ───
+
+async function isInternalEmail(email: string | undefined): Promise<boolean> {
+  if (!email) return false;
+  const { Item } = await ddb.send(
+    new GetCommand({
+      TableName: INTERNAL_EMAILS_TABLE,
+      Key: { email: email.toLowerCase() },
+    })
+  );
+  return !!Item;
+}
+
 // ─── Message formatting ───
 
 function groupKeyFor(event: UploadEvent): string {
   return event.uploadId;
 }
 
-function formatTopLevel(event: UploadEvent): string {
+function formatTopLevel(event: UploadEvent, internal: boolean): string {
   const parts: string[] = [];
+  const prefix = internal ? ":codespeak: " : "";
   const name = event.userName || event.userEmail || "Anonymous";
   if (event.userEmail) {
-    parts.push(`*${name}* (${event.userEmail})`);
+    parts.push(`${prefix}*${name}* (${event.userEmail})`);
   } else {
-    parts.push(`*${name}*`);
+    parts.push(`${prefix}*${name}*`);
   }
   parts.push(`Upload: ${event.filename} (${event.sizeMB} MB)`);
   if (event.repoUrl) parts.push(event.repoUrl);
@@ -291,7 +307,8 @@ function formatFailedReply(event: UploadEvent): string {
 async function handleUploadEvent(event: UploadEvent): Promise<void> {
   const channel = await getChannelId();
   const groupKey = groupKeyFor(event);
-  const thread = await ensureThread(groupKey, channel, event);
+  const internal = await isInternalEmail(event.userEmail);
+  const thread = await ensureThread(groupKey, channel, event, internal);
 
   if (event.eventType === "presign") {
     if (thread) {
