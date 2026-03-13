@@ -20,7 +20,6 @@ export interface UploadResult {
 
 /**
  * Upload a zip file to S3 via presigned URL.
- * Returns the upload ID on success.
  */
 export async function uploadArchive(
   zipPath: string,
@@ -92,7 +91,6 @@ export async function uploadArchive(
       throw new Error(`Confirm failed (${response.status}): ${body}`);
     }
 
-    await response.json();
     return { uploadId: presign.uploadId };
   } catch (err) {
     if (err instanceof VibeError) throw err;
