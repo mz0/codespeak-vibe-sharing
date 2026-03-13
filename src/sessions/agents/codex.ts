@@ -9,7 +9,7 @@ import {
   readJsonl,
   getFileSize,
 } from "../../utils/fs-helpers.js";
-import type { AgentProvider, DiscoveredSession } from "../types.js";
+import type { AgentProvider, DiscoveredSession, ProjectContext } from "../types.js";
 
 interface CodexSessionMeta {
   id?: string;
@@ -51,7 +51,8 @@ export class CodexProvider implements AgentProvider {
     return CODEX_DIR;
   }
 
-  async findSessions(projectPath: string): Promise<DiscoveredSession[]> {
+  async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {
+    const { projectPath } = context;
     if (!(await directoryExists(CODEX_SESSIONS_DIR))) return [];
 
     const sessions: DiscoveredSession[] = [];

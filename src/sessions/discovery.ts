@@ -2,7 +2,12 @@ import { ClaudeCodeProvider } from "./agents/claude.js";
 import { CodexProvider } from "./agents/codex.js";
 import { GeminiProvider } from "./agents/gemini.js";
 import { ClineProvider } from "./agents/cline.js";
-import type { AgentProvider, DiscoveredSession } from "./types.js";
+import type { AgentProvider, DiscoveredSession, ProjectContext } from "./types.js";
+
+export interface DiscoveryInput {
+  worktreePaths: string[];
+  gitRemoteUrl: string | null;
+}
 
 export interface DiscoveryResult {
   /** Agent name → sessions found */
@@ -25,11 +30,11 @@ function getAllProviders(): AgentProvider[] {
 
 /**
  * Discover AI coding sessions for a project across all supported agents.
- * Accepts multiple project paths (e.g. all git worktrees) and merges results.
+ * Accepts worktree paths and an optional git remote URL for cross-clone matching.
  * Scans all agents in parallel for speed.
  */
 export async function discoverAllSessions(
-  projectPaths: string[],
+  input: DiscoveryInput,
 ): Promise<DiscoveryResult> {
   const providers = getAllProviders();
 
@@ -51,8 +56,13 @@ export async function discoverAllSessions(
       const seenIds = new Set<string>();
       const merged: DiscoveredSession[] = [];
 
-      for (const projectPath of projectPaths) {
-        const sessions = await p.findSessions(projectPath);
+      for (const worktreePath of input.worktreePaths) {
+        const context: ProjectContext = {
+          projectPath: worktreePath,
+          gitRemoteUrl: input.gitRemoteUrl,
+          allWorktreePaths: input.worktreePaths,
+        };
+        const sessions = await p.findSessions(context);
         for (const s of sessions) {
           if (!seenIds.has(s.sessionId)) {
             seenIds.add(s.sessionId);

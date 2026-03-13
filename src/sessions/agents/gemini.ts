@@ -14,7 +14,7 @@ import {
   getFileSize,
   safeReadJson,
 } from "../../utils/fs-helpers.js";
-import type { AgentProvider, DiscoveredSession } from "../types.js";
+import type { AgentProvider, DiscoveredSession, ProjectContext } from "../types.js";
 
 interface GeminiProjectsJson {
   projects?: Record<string, string>;
@@ -50,7 +50,8 @@ export class GeminiProvider implements AgentProvider {
     return GEMINI_DIR;
   }
 
-  async findSessions(projectPath: string): Promise<DiscoveredSession[]> {
+  async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {
+    const { projectPath } = context;
     // Try new format first
     const sessions = await this.findNewFormatSessions(projectPath);
     if (sessions.length > 0) return sessions;

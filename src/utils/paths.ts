@@ -153,3 +153,38 @@ export function getRepoName(remoteUrl: string): string | null {
     remoteUrl.match(/:([^/]+?)(?:\.git)?$/);
   return match?.[1] ?? null;
 }
+
+/**
+ * Normalize a git remote URL for comparison.
+ * Strips protocol, `.git` suffix, trailing slashes, and lowercases host.
+ * So `git@github.com:user/repo.git` and `https://github.com/user/repo` compare equal.
+ */
+export function normalizeRemoteUrl(url: string): string {
+  let normalized = url.trim();
+
+  // Strip trailing slashes
+  normalized = normalized.replace(/\/+$/, "");
+
+  // Strip .git suffix
+  normalized = normalized.replace(/\.git$/, "");
+
+  // SSH format: git@host:user/repo → host/user/repo
+  const sshMatch = normalized.match(/^[^@]+@([^:]+):(.+)$/);
+  if (sshMatch) {
+    normalized = `${sshMatch[1].toLowerCase()}/${sshMatch[2]}`;
+  } else {
+    // HTTPS/other: strip protocol
+    normalized = normalized.replace(/^[a-zA-Z][a-zA-Z+.-]*:\/\//, "");
+    // Lowercase host portion (everything before first /)
+    const slashIdx = normalized.indexOf("/");
+    if (slashIdx > 0) {
+      normalized =
+        normalized.slice(0, slashIdx).toLowerCase() +
+        normalized.slice(slashIdx);
+    } else {
+      normalized = normalized.toLowerCase();
+    }
+  }
+
+  return normalized;
+}

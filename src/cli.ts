@@ -131,7 +131,10 @@ export async function run(options: CliOptions): Promise<void> {
 
     if (options.sessions !== false) {
       const sessionSpinner = ora("Discovering AI coding sessions...").start();
-      const discovery = await discoverAllSessions(worktreePaths);
+      const discovery = await discoverAllSessions({
+        worktreePaths,
+        gitRemoteUrl: detectedRepoUrl,
+      });
       sessionSpinner.stop();
 
       if (discovery.totalSessions > 0) {
@@ -152,6 +155,10 @@ export async function run(options: CliOptions): Promise<void> {
       if (hasSelected && provider.getProviderFiles) {
         const files = await provider.getProviderFiles();
         sessionFileCount += files.length;
+      }
+      if (hasSelected && provider.getVirtualFiles) {
+        const virtualFiles = await provider.getVirtualFiles();
+        sessionFileCount += virtualFiles.length;
       }
       for (const session of sessions) {
         if (!selectedSessionIds.has(session.sessionId)) continue;

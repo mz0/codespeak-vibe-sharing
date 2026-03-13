@@ -17,6 +17,12 @@ export interface DiscoveredSession {
   sizeBytes: number;
 }
 
+export interface ProjectContext {
+  projectPath: string;
+  gitRemoteUrl: string | null;
+  allWorktreePaths: string[];
+}
+
 export interface AgentProvider {
   /** Display name for this agent (e.g. "Claude Code") */
   readonly name: string;
@@ -27,10 +33,10 @@ export interface AgentProvider {
   detect(): Promise<boolean>;
 
   /**
-   * Find sessions associated with the given project path.
+   * Find sessions associated with the given project context.
    * Returns empty array if none found (never throws).
    */
-  findSessions(projectPath: string): Promise<DiscoveredSession[]>;
+  findSessions(context: ProjectContext): Promise<DiscoveredSession[]>;
 
   /**
    * Get the absolute paths of all files that should be collected for a session.

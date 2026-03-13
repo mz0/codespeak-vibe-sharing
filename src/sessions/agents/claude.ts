@@ -16,7 +16,7 @@ import {
   getFileSize,
   walkDirectoryAbsolute,
 } from "../../utils/fs-helpers.js";
-import type { AgentProvider, DiscoveredSession } from "../types.js";
+import type { AgentProvider, DiscoveredSession, ProjectContext } from "../types.js";
 
 interface SessionIndexEntry {
   sessionId: string;
@@ -67,7 +67,8 @@ export class ClaudeCodeProvider implements AgentProvider {
     return CLAUDE_DIR;
   }
 
-  async findSessions(projectPath: string): Promise<DiscoveredSession[]> {
+  async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {
+    const { projectPath } = context;
     // Strategy 1: Compute encoded path
     const encoded = encodeProjectPath(projectPath);
     const sessionDir = path.join(CLAUDE_PROJECTS_DIR, encoded);
