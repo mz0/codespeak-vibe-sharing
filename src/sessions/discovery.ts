@@ -25,10 +25,11 @@ function getAllProviders(): AgentProvider[] {
 
 /**
  * Discover AI coding sessions for a project across all supported agents.
+ * Accepts multiple project paths (e.g. all git worktrees) and merges results.
  * Scans all agents in parallel for speed.
  */
 export async function discoverAllSessions(
-  projectPath: string,
+  projectPaths: string[],
 ): Promise<DiscoveryResult> {
   const providers = getAllProviders();
 
@@ -44,12 +45,24 @@ export async function discoverAllSessions(
     .filter((d) => d.detected)
     .map((d) => d.provider);
 
-  // Find sessions from all installed agents, in parallel
+  // Find sessions from all installed agents × all project paths, in parallel
   const results = await Promise.all(
-    installedProviders.map(async (p) => ({
-      provider: p,
-      sessions: await p.findSessions(projectPath),
-    })),
+    installedProviders.map(async (p) => {
+      const seenIds = new Set<string>();
+      const merged: DiscoveredSession[] = [];
+
+      for (const projectPath of projectPaths) {
+        const sessions = await p.findSessions(projectPath);
+        for (const s of sessions) {
+          if (!seenIds.has(s.sessionId)) {
+            seenIds.add(s.sessionId);
+            merged.push(s);
+          }
+        }
+      }
+
+      return { provider: p, sessions: merged };
+    }),
   );
 
   const byAgent = new Map<

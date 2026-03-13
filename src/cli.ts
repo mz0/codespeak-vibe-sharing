@@ -23,11 +23,11 @@ import {
 import {
   selectUntrackedFiles,
   selectSessions,
-  promptNoSessions,
   confirmFileList,
   promptUploadMetadata,
 } from "./ui/prompts.js";
-import { getGitRemoteUrl, getRepoName } from "./utils/paths.js";
+import { getGitRemoteUrl, getRepoName, getGitWorktrees } from "./utils/paths.js";
+import type { GitWorktree } from "./utils/paths.js";
 import { getDefaultExcludeDescription } from "./utils/excludes.js";
 import { MAX_ARCHIVE_SIZE_MB } from "./config.js";
 import { VibeError, archiveTooLarge } from "./utils/errors.js";
@@ -122,9 +122,16 @@ export async function run(options: CliOptions): Promise<void> {
     >();
     let selectedSessionIds = new Set<string>();
 
+    // Detect all worktrees so we can find sessions across all of them
+    let worktrees: GitWorktree[] = [{ path: projectState.root, branch: null }];
+    if (projectState.isGitRepo) {
+      worktrees = await getGitWorktrees(projectState.root);
+    }
+    const worktreePaths = worktrees.map((wt) => wt.path);
+
     if (options.sessions !== false) {
       const sessionSpinner = ora("Discovering AI coding sessions...").start();
-      const discovery = await discoverAllSessions(projectState.root);
+      const discovery = await discoverAllSessions(worktreePaths);
       sessionSpinner.stop();
 
       if (discovery.totalSessions > 0) {
@@ -132,14 +139,7 @@ export async function run(options: CliOptions): Promise<void> {
         selectedSessionIds = await selectSessions(discovery.byAgent);
         sessionsByAgent = discovery.byAgent;
       } else {
-        const choice = await promptNoSessions();
-        if (choice === "browse") {
-          console.log(
-            chalk.dim(
-              "Manual session browsing is not yet implemented. Proceeding without sessions.",
-            ),
-          );
-        }
+        console.log(chalk.dim("No AI coding sessions found for this project."));
       }
     }
 
@@ -214,6 +214,7 @@ export async function run(options: CliOptions): Promise<void> {
       untrackedFileCount: projectState.isGitRepo
         ? projectState.untrackedFiles.length
         : undefined,
+      worktrees,
       projectFileCount,
       sessionFileCount,
       totalSizeBytes: totalSizeEstimate,

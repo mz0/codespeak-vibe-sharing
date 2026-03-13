@@ -1,6 +1,5 @@
 import { confirm, input } from "@inquirer/prompts";
 import gooseCheckbox from "./goose-checkbox.js";
-import gooseSelect from "./goose-select.js";
 import chalk from "chalk";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -83,27 +82,6 @@ export async function selectSessions(
   });
 
   return new Set(selected);
-}
-
-/**
- * Ask what to do when no sessions are found.
- */
-export async function promptNoSessions(): Promise<"browse" | "skip"> {
-  const choice = await gooseSelect({
-    message: "No AI coding sessions found for this project. What would you like to do?",
-    choices: [
-      {
-        name: "Continue without sessions",
-        value: "skip" as const,
-      },
-      {
-        name: "Browse filesystem to find session files",
-        value: "browse" as const,
-      },
-    ],
-  });
-
-  return choice;
 }
 
 /**

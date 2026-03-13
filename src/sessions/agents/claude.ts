@@ -52,7 +52,7 @@ export class ClaudeCodeProvider implements AgentProvider {
   readonly name = "Claude Code";
   readonly slug = "claude-code";
 
-  private _sessionDir: string | null = null;
+  private _sessionDirs: string[] = [];
   private _providerFiles: string[] | null = null;
 
   async detect(): Promise<boolean> {
@@ -60,7 +60,7 @@ export class ClaudeCodeProvider implements AgentProvider {
   }
 
   getSessionDir(): string | null {
-    return this._sessionDir;
+    return this._sessionDirs[0] ?? null;
   }
 
   getArchiveRoot(): string {
@@ -73,7 +73,9 @@ export class ClaudeCodeProvider implements AgentProvider {
     const sessionDir = path.join(CLAUDE_PROJECTS_DIR, encoded);
 
     if (await directoryExists(sessionDir)) {
-      this._sessionDir = sessionDir;
+      if (!this._sessionDirs.includes(sessionDir)) {
+        this._sessionDirs.push(sessionDir);
+      }
       const sessions = await this.scanSessionDir(sessionDir, projectPath);
       if (sessions.length > 0) return sessions;
     }
@@ -89,15 +91,19 @@ export class ClaudeCodeProvider implements AgentProvider {
 
   async getProviderFiles(): Promise<string[]> {
     if (this._providerFiles) return this._providerFiles;
-    if (!this._sessionDir) return [];
+    if (this._sessionDirs.length === 0) return [];
 
-    // Walk the entire project session directory
-    const dirFiles = await walkDirectoryAbsolute(this._sessionDir);
+    // Walk all session directories (one per worktree path)
+    const allDirFiles: string[] = [];
+    for (const dir of this._sessionDirs) {
+      const files = await walkDirectoryAbsolute(dir);
+      allDirFiles.push(...files);
+    }
 
     // Discover referenced plan/debug files from JSONL content
-    const referencedFiles = await this.discoverReferencedFiles(dirFiles);
+    const referencedFiles = await this.discoverReferencedFiles(allDirFiles);
 
-    this._providerFiles = [...dirFiles, ...referencedFiles];
+    this._providerFiles = [...allDirFiles, ...referencedFiles];
     return this._providerFiles;
   }
 
@@ -291,7 +297,9 @@ export class ClaudeCodeProvider implements AgentProvider {
         for (const sid of sessionIds) {
           const jsonlPath = path.join(dirPath, `${sid}.jsonl`);
           if (await fileExists(jsonlPath)) {
-            if (!this._sessionDir) this._sessionDir = dirPath;
+            if (!this._sessionDirs.includes(dirPath)) {
+              this._sessionDirs.push(dirPath);
+            }
             const sizeBytes = await getFileSize(jsonlPath);
 
             sessions.push({

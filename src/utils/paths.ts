@@ -73,6 +73,58 @@ export async function getGitCommit(cwd: string): Promise<string | null> {
   }
 }
 
+export interface GitWorktree {
+  path: string;
+  branch: string | null;
+}
+
+/**
+ * Get all worktrees for the git repository.
+ * Parses `git worktree list --porcelain` output.
+ * Falls back to [{ path: cwd, branch: null }] on failure.
+ */
+export async function getGitWorktrees(cwd: string): Promise<GitWorktree[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["worktree", "list", "--porcelain"],
+      { cwd },
+    );
+
+    const worktrees: GitWorktree[] = [];
+    let currentPath: string | null = null;
+    let currentBranch: string | null = null;
+
+    for (const line of stdout.split("\n")) {
+      if (line.startsWith("worktree ")) {
+        // Start of a new worktree block — flush the previous one
+        if (currentPath) {
+          worktrees.push({ path: currentPath, branch: currentBranch });
+        }
+        currentPath = line.slice("worktree ".length);
+        currentBranch = null;
+      } else if (line.startsWith("branch ")) {
+        // e.g. "branch refs/heads/main" → "main"
+        const ref = line.slice("branch ".length);
+        currentBranch = ref.startsWith("refs/heads/")
+          ? ref.slice("refs/heads/".length)
+          : ref;
+      }
+    }
+
+    // Flush the last worktree
+    if (currentPath) {
+      worktrees.push({ path: currentPath, branch: currentBranch });
+    }
+
+    return worktrees.length > 0
+      ? worktrees
+      : [{ path: cwd, branch: null }];
+  } catch {
+    return [{ path: cwd, branch: null }];
+  }
+}
+
 /**
  * Get the remote URL for the git repository (origin).
  * Returns null if not a git repo or no remote is configured.

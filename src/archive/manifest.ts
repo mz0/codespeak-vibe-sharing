@@ -1,5 +1,6 @@
 import { TOOL_VERSION } from "../config.js";
 import type { DiscoveredSession } from "../sessions/types.js";
+import type { GitWorktree } from "../utils/paths.js";
 
 export interface ArchiveManifest {
   version: 1;
@@ -13,6 +14,7 @@ export interface ArchiveManifest {
     gitCommit?: string;
     hasBundle?: boolean;
     untrackedFileCount?: number;
+    worktrees?: { path: string; branch: string | null }[];
   };
   agents: Record<
     string,
@@ -40,6 +42,7 @@ export function buildManifest(opts: {
   gitCommit?: string | null;
   hasBundle?: boolean;
   untrackedFileCount?: number;
+  worktrees?: GitWorktree[];
   projectFileCount: number;
   sessionFileCount: number;
   totalSizeBytes: number;
@@ -70,6 +73,9 @@ export function buildManifest(opts: {
       ...(opts.gitCommit && { gitCommit: opts.gitCommit }),
       ...(opts.hasBundle && { hasBundle: true }),
       ...(opts.untrackedFileCount != null && { untrackedFileCount: opts.untrackedFileCount }),
+      ...(opts.worktrees && opts.worktrees.length > 1 && {
+        worktrees: opts.worktrees.map(wt => ({ path: wt.path, branch: wt.branch })),
+      }),
     },
     agents,
     files: {
