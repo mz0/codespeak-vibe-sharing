@@ -109,7 +109,7 @@ export class VibeShareStack extends cdk.Stack {
       UPLOAD_PREFIX,
     };
     const sharedProps: Partial<lambdaNode.NodejsFunctionProps> = {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,
       memorySize: 256,
       timeout: cdk.Duration.seconds(10),
@@ -122,7 +122,7 @@ export class VibeShareStack extends cdk.Stack {
 
     // ─── Pre Sign-up trigger (restrict to @codespeak.dev) ───
     const preSignUpFn = new lambdaNode.NodejsFunction(this, "PreSignUpFunction", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,
       memorySize: 128,
       timeout: cdk.Duration.seconds(5),
@@ -204,7 +204,7 @@ export class VibeShareStack extends cdk.Stack {
 
     // ─── List Slack Threads Lambda ───
     const listSlackThreadsFn = new lambdaNode.NodejsFunction(this, "ListSlackThreadsFunction", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,
       memorySize: 128,
       timeout: cdk.Duration.seconds(10),
@@ -409,7 +409,7 @@ export class VibeShareStack extends cdk.Stack {
     );
 
     const slackNotifyFn = new lambdaNode.NodejsFunction(this, "SlackNotifyFunction", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,
       memorySize: 128,
       timeout: cdk.Duration.seconds(15),
