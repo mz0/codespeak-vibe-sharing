@@ -27,6 +27,29 @@ export const CURSOR_CHATS_DIR = path.join(CURSOR_DIR, "chats");
 export const CURSOR_PLANS_DIR = path.join(CURSOR_DIR, "plans");
 export const CURSOR_PROJECTS_DIR = path.join(CURSOR_DIR, "projects");
 
+// Platform-dependent Cursor Application Support directory
+const cursorAppDataDir =
+  process.platform === "darwin"
+    ? path.join(home, "Library", "Application Support", "Cursor")
+    : process.platform === "win32"
+      ? path.join(
+          process.env.APPDATA ?? path.join(home, "AppData", "Roaming"),
+          "Cursor",
+        )
+      : path.join(home, ".config", "Cursor");
+
+export const CURSOR_GLOBAL_STATE_DB = path.join(
+  cursorAppDataDir,
+  "User",
+  "globalStorage",
+  "state.vscdb",
+);
+export const CURSOR_WORKSPACE_STORAGE_DIR = path.join(
+  cursorAppDataDir,
+  "User",
+  "workspaceStorage",
+);
+
 export const CLINE_DIR = path.join(home, ".cline");
 export const CLINE_TASKS_DIR = path.join(CLINE_DIR, "data", "tasks");
 export const CLINE_HISTORY_FILE = path.join(

@@ -7,17 +7,21 @@ import {
   CURSOR_CHATS_DIR,
   CURSOR_PLANS_DIR,
   CURSOR_PROJECTS_DIR,
+  CURSOR_GLOBAL_STATE_DB,
+  CURSOR_WORKSPACE_STORAGE_DIR,
 } from "../../config.js";
 import {
   directoryExists,
   fileExists,
   getFileSize,
+  safeReadJson,
   walkDirectoryAbsolute,
   readLines,
 } from "../../utils/fs-helpers.js";
 import {
   hasSqliteCli,
   sqliteQuery,
+  sqliteCreateFiltered,
   getSqliteInstallInstructions,
 } from "../../utils/sqlite.js";
 import type {
@@ -34,6 +38,24 @@ interface CursorSessionMeta {
   lastUsedModel?: string;
 }
 
+interface PlanRegistryEntry {
+  id: string;
+  name: string;
+  uri: { path: string; scheme: string };
+  createdBy?: string;
+  editedBy?: string[];
+}
+
+interface DiscoveredPlan {
+  id: string | null;
+  name: string | null;
+  filePath: string;
+  discoveredVia: "blob-content-scan" | "registry";
+  createdByComposerId?: string;
+  registryUri?: string;
+  referencedInStoreDb?: string;
+}
+
 export class CursorProvider implements AgentProvider {
   readonly name = "Cursor";
   readonly slug = "cursor";
@@ -48,6 +70,18 @@ export class CursorProvider implements AgentProvider {
   private sessionDbPaths = new Map<string, string>();
   /** Whether sqlite3 CLI is available */
   private sqliteAvailable = false;
+  /** Matched workspace storage directory */
+  private workspaceStorageDir: string | null = null;
+  /** Path to the matched workspace.json */
+  private workspaceJsonPath: string | null = null;
+  /** Cached workspace composerIds */
+  private workspaceComposerIds: Set<string> | null = null;
+  /** Temp file path for filtered state.vscdb */
+  private stateExtractPath: string | null = null;
+  /** Discovered plans with metadata for the manifest */
+  private discoveredPlans: DiscoveredPlan[] = [];
+  /** The project path used for discovery */
+  private projectPath: string | null = null;
 
   async detect(): Promise<boolean> {
     if (!(await directoryExists(CURSOR_CHATS_DIR))) return false;
@@ -71,6 +105,7 @@ export class CursorProvider implements AgentProvider {
   }
 
   async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {
+    this.projectPath = context.projectPath;
     const seenIds = new Set<string>();
     const sessions: DiscoveredSession[] = [];
 
@@ -107,6 +142,9 @@ export class CursorProvider implements AgentProvider {
         }
       }
     }
+
+    // Find workspace storage directory (for plan registry + state extraction)
+    await this.findWorkspaceStorageDir(context.projectPath);
 
     return sessions;
   }
@@ -146,9 +184,20 @@ export class CursorProvider implements AgentProvider {
       }
     }
 
-    // 3. Referenced plan files
+    // 3. Referenced plan files (blob scan + registry)
     const planFiles = await this.discoverReferencedPlanFiles(files);
     files.push(...planFiles);
+
+    // 4. Filtered state.vscdb extract (outside archive root → sessions/cursor/)
+    const extractPath = await this.createStateExtract();
+    if (extractPath) {
+      files.push(extractPath);
+    }
+
+    // 5. Workspace.json (outside archive root → sessions/cursor/)
+    if (this.workspaceJsonPath && (await fileExists(this.workspaceJsonPath))) {
+      files.push(this.workspaceJsonPath);
+    }
 
     this._providerFiles = files;
     return this._providerFiles;
@@ -157,24 +206,31 @@ export class CursorProvider implements AgentProvider {
   async getVirtualFiles(): Promise<
     Array<{ relativePath: string; content: string }>
   > {
-    // Generate decoded sessions-summary.json
-    const summaries: Record<string, CursorSessionMeta> = {};
+    const virtualFiles: Array<{ relativePath: string; content: string }> = [];
 
+    // 1. Generate decoded sessions-summary.json
+    const summaries: Record<string, CursorSessionMeta> = {};
     for (const [sessionId, dbPath] of this.sessionDbPaths) {
       const meta = await this.readSessionMeta(dbPath);
       if (meta) {
         summaries[sessionId] = meta;
       }
     }
-
-    if (Object.keys(summaries).length === 0) return [];
-
-    return [
-      {
+    if (Object.keys(summaries).length > 0) {
+      virtualFiles.push({
         relativePath: "sessions-summary.json",
         content: JSON.stringify(summaries, null, 2),
-      },
-    ];
+      });
+    }
+
+    // 2. Generate discovery-manifest.json
+    const manifest = this.buildDiscoveryManifest();
+    virtualFiles.push({
+      relativePath: "discovery-manifest.json",
+      content: JSON.stringify(manifest, null, 2),
+    });
+
+    return virtualFiles;
   }
 
   // --- Internal methods ---
@@ -386,7 +442,8 @@ export class CursorProvider implements AgentProvider {
   }
 
   /**
-   * Scan store.db blob content for references to ~/.cursor/plans/ files.
+   * Scan store.db blob content and plan registry for plan files.
+   * Always runs both strategies and merges results.
    */
   private async discoverReferencedPlanFiles(
     existingFiles: string[],
@@ -395,19 +452,27 @@ export class CursorProvider implements AgentProvider {
     const escapedPlansPrefix = escapeRegex(plansPrefix);
     const pattern = new RegExp(`${escapedPlansPrefix}[^"\\\\\\s]+`, "g");
 
-    const found = new Set<string>();
+    const found = new Map<string, DiscoveredPlan>();
 
-    // Scan store.db blobs for plan path references
-    for (const dbPath of this.sessionDbPaths.values()) {
+    // Strategy 1: Scan store.db blobs for plan path references
+    for (const [, dbPath] of this.sessionDbPaths) {
       try {
-        // Query all blobs that mention the plans directory
         const escapedDir = CURSOR_PLANS_DIR.replace(/'/g, "''");
         const result = await sqliteQuery(
           dbPath,
           `SELECT cast(data as text) FROM blobs WHERE cast(data as text) LIKE '%${escapedDir}%';`,
         );
         for (const match of result.matchAll(pattern)) {
-          found.add(match[0]);
+          const filePath = match[0];
+          if (!found.has(filePath)) {
+            found.set(filePath, {
+              id: null,
+              name: null,
+              filePath,
+              discoveredVia: "blob-content-scan",
+              referencedInStoreDb: dbPath,
+            });
+          }
         }
       } catch {
         // Skip
@@ -420,7 +485,16 @@ export class CursorProvider implements AgentProvider {
       try {
         for await (const line of readLines(file)) {
           for (const match of line.matchAll(pattern)) {
-            found.add(match[0]);
+            const filePath = match[0];
+            if (!found.has(filePath)) {
+              found.set(filePath, {
+                id: null,
+                name: null,
+                filePath,
+                discoveredVia: "blob-content-scan",
+                referencedInStoreDb: file,
+              });
+            }
           }
         }
       } catch {
@@ -428,14 +502,272 @@ export class CursorProvider implements AgentProvider {
       }
     }
 
-    // Verify files exist
+    // Strategy 2: Query plan registry from global state.vscdb
+    const registryPlans = await this.discoverPlansFromRegistry();
+    for (const plan of registryPlans) {
+      if (!found.has(plan.filePath)) {
+        found.set(plan.filePath, plan);
+      }
+    }
+
+    // Verify files exist and collect results
     const existing: string[] = [];
-    for (const f of found) {
-      if (await fileExists(f)) {
-        existing.push(f);
+    for (const [filePath, plan] of found) {
+      if (await fileExists(filePath)) {
+        existing.push(filePath);
+        this.discoveredPlans.push(plan);
       }
     }
     return existing;
+  }
+
+  /**
+   * Find workspace storage directory by scanning workspace.json files.
+   */
+  private async findWorkspaceStorageDir(
+    projectPath: string,
+  ): Promise<void> {
+    if (!(await directoryExists(CURSOR_WORKSPACE_STORAGE_DIR))) return;
+
+    let entries;
+    try {
+      entries = await fs.readdir(CURSOR_WORKSPACE_STORAGE_DIR, {
+        withFileTypes: true,
+      });
+    } catch {
+      return;
+    }
+
+    const expectedFolder = `file://${projectPath}`;
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const wsJsonPath = path.join(
+        CURSOR_WORKSPACE_STORAGE_DIR,
+        entry.name,
+        "workspace.json",
+      );
+      const wsJson = await safeReadJson<{ folder?: string }>(wsJsonPath);
+      if (!wsJson?.folder) continue;
+
+      if (wsJson.folder === expectedFolder) {
+        this.workspaceStorageDir = path.join(
+          CURSOR_WORKSPACE_STORAGE_DIR,
+          entry.name,
+        );
+        this.workspaceJsonPath = wsJsonPath;
+        return;
+      }
+    }
+  }
+
+  /**
+   * Get all composerIds from the workspace state.vscdb.
+   */
+  private async getWorkspaceComposerIds(): Promise<Set<string>> {
+    if (this.workspaceComposerIds) return this.workspaceComposerIds;
+    this.workspaceComposerIds = new Set();
+
+    if (!this.workspaceStorageDir || !this.sqliteAvailable) {
+      return this.workspaceComposerIds;
+    }
+
+    const wsStateDb = path.join(this.workspaceStorageDir, "state.vscdb");
+    if (!(await fileExists(wsStateDb))) return this.workspaceComposerIds;
+
+    try {
+      const raw = await sqliteQuery(
+        wsStateDb,
+        "SELECT value FROM ItemTable WHERE key='composer.composerData';",
+      );
+      const trimmed = raw.trim();
+      if (!trimmed) return this.workspaceComposerIds;
+
+      const data = JSON.parse(trimmed) as {
+        allComposers?: Array<{ composerId?: string }>;
+      };
+      for (const composer of data.allComposers ?? []) {
+        if (composer.composerId) {
+          this.workspaceComposerIds.add(composer.composerId);
+        }
+      }
+    } catch {
+      // Skip
+    }
+
+    return this.workspaceComposerIds;
+  }
+
+  /**
+   * Query the global plan registry for plans belonging to this workspace.
+   */
+  private async discoverPlansFromRegistry(): Promise<DiscoveredPlan[]> {
+    if (!this.sqliteAvailable) return [];
+    if (!(await fileExists(CURSOR_GLOBAL_STATE_DB))) return [];
+
+    const composerIds = await this.getWorkspaceComposerIds();
+    if (composerIds.size === 0) return [];
+
+    try {
+      const raw = await sqliteQuery(
+        CURSOR_GLOBAL_STATE_DB,
+        "SELECT value FROM ItemTable WHERE key='composer.planRegistry';",
+      );
+      const trimmed = raw.trim();
+      if (!trimmed) return [];
+
+      const registry = JSON.parse(trimmed) as Record<
+        string,
+        PlanRegistryEntry
+      >;
+      const plans: DiscoveredPlan[] = [];
+
+      for (const [, entry] of Object.entries(registry)) {
+        const createdByMatch =
+          entry.createdBy && composerIds.has(entry.createdBy);
+        const editedByMatch = entry.editedBy?.some((id) =>
+          composerIds.has(id),
+        );
+
+        if (!createdByMatch && !editedByMatch) continue;
+
+        const filePath = entry.uri?.path;
+        if (!filePath) continue;
+
+        plans.push({
+          id: entry.id,
+          name: entry.name,
+          filePath,
+          discoveredVia: "registry",
+          createdByComposerId: entry.createdBy,
+          registryUri: `${entry.uri.scheme}://${entry.uri.path}`,
+        });
+      }
+
+      return plans;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Create a filtered copy of state.vscdb containing only project-relevant rows.
+   */
+  private async createStateExtract(): Promise<string | null> {
+    if (!this.sqliteAvailable) return null;
+    if (!(await fileExists(CURSOR_GLOBAL_STATE_DB))) return null;
+
+    const composerIds = await this.getWorkspaceComposerIds();
+
+    try {
+      const tmpPath = path.join(os.tmpdir(), `cursor-state-${Date.now()}.vscdb`);
+
+      // Build SQL operations
+      const escapedGlobalPath = CURSOR_GLOBAL_STATE_DB.replace(/'/g, "''");
+      const sqlParts: string[] = [
+        `ATTACH DATABASE '${escapedGlobalPath}' AS source;`,
+        "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);",
+        "CREATE TABLE IF NOT EXISTS cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);",
+        // Plan registry
+        "INSERT INTO ItemTable SELECT * FROM source.ItemTable WHERE key = 'composer.planRegistry';",
+      ];
+
+      // composerData rows for workspace's composers
+      if (composerIds.size > 0) {
+        const inClause = [...composerIds]
+          .map((id) => `'composerData:${id.replace(/'/g, "''")}'`)
+          .join(",");
+        sqlParts.push(
+          `INSERT INTO cursorDiskKV SELECT * FROM source.cursorDiskKV WHERE key IN (${inClause});`,
+        );
+      }
+
+      sqlParts.push("DETACH source;");
+
+      // Also copy workspace-level composer.composerData if available
+      if (this.workspaceStorageDir) {
+        const wsStateDb = path.join(this.workspaceStorageDir, "state.vscdb");
+        if (await fileExists(wsStateDb)) {
+          const escapedWsPath = wsStateDb.replace(/'/g, "''");
+          sqlParts.push(
+            `ATTACH DATABASE '${escapedWsPath}' AS wsource;`,
+            "INSERT OR REPLACE INTO ItemTable SELECT * FROM wsource.ItemTable WHERE key = 'composer.composerData';",
+            "DETACH wsource;",
+          );
+        }
+      }
+
+      await sqliteCreateFiltered(tmpPath, sqlParts.join("\n"));
+      this.stateExtractPath = tmpPath;
+      return tmpPath;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Build the discovery manifest with all intermediate findings.
+   */
+  private buildDiscoveryManifest(): Record<string, unknown> {
+    const projectPath = this.projectPath ?? "";
+    const chatHashes = this.chatDirs.map((d) => path.basename(d));
+
+    const manifest: Record<string, unknown> = {
+      project: {
+        path: projectPath,
+        chatHashes,
+        chatHashAlgorithm: "MD5(projectPath)",
+        projectSlugs: this.projectSlugs,
+        projectSlugAlgorithm: "path.replace(/^\\//, '').replace(/\\//g, '-')",
+      },
+      workspaceStorage: this.workspaceStorageDir
+        ? {
+            hash: path.basename(this.workspaceStorageDir),
+            dir: this.workspaceStorageDir,
+            workspaceJsonPath: this.workspaceJsonPath,
+            stateDbPath: path.join(this.workspaceStorageDir, "state.vscdb"),
+            composerIds: [...(this.workspaceComposerIds ?? [])],
+            composerIdsSource:
+              "ItemTable key='composer.composerData' → allComposers[].composerId",
+          }
+        : null,
+      globalState: {
+        path: CURSOR_GLOBAL_STATE_DB,
+        planRegistryKey: "ItemTable key='composer.planRegistry'",
+        composerDataKeyPattern: "cursorDiskKV key='composerData:<composerId>'",
+      },
+      sessions: [...this.sessionDbPaths.entries()].map(
+        ([agentId, dbPath]) => ({
+          agentId,
+          storeDbPath: dbPath,
+          discoveryStrategy: this.chatDirs.some((d) =>
+            dbPath.startsWith(d),
+          )
+            ? "md5-hash-lookup"
+            : "blob-content-scan",
+        }),
+      ),
+      plans: this.discoveredPlans,
+      stateExtract: this.stateExtractPath
+        ? {
+            description:
+              "Filtered copy of state.vscdb containing only project-relevant rows",
+            tempPath: this.stateExtractPath,
+            includedFromGlobal: {
+              ItemTable: ["composer.planRegistry"],
+              cursorDiskKV: [...(this.workspaceComposerIds ?? [])].map(
+                (id) => `composerData:${id}`,
+              ),
+            },
+            includedFromWorkspace: this.workspaceStorageDir
+              ? { ItemTable: ["composer.composerData"] }
+              : null,
+          }
+        : null,
+    };
+
+    return manifest;
   }
 }
 

@@ -56,6 +56,18 @@ export async function sqliteQueryJson<T>(
 }
 
 /**
+ * Create a new SQLite database with filtered data from source databases.
+ * Uses ATTACH DATABASE to read from sources (SELECT-only) and writes to destPath.
+ * Note: -readonly is NOT used because we're creating a new DB.
+ */
+export async function sqliteCreateFiltered(
+  destPath: string,
+  operations: string,
+): Promise<void> {
+  await execFileAsync("sqlite3", [destPath, operations], { timeout: 30_000 });
+}
+
+/**
  * Get installation instructions for sqlite3 based on the current platform.
  */
 export function getSqliteInstallInstructions(): string {
