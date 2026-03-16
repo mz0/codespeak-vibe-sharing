@@ -123,6 +123,41 @@ export class ClaudeCodeProvider implements AgentProvider {
           // Skip unreadable history
         }
       }
+
+      // Strategy 3: For remaining encoded dirs with sessions but unknown paths,
+      // recover the real path from cwd inside JSONL files.
+      for (const dirName of dirs) {
+        const decoded = decodeProjectPath(dirName);
+        if (projects.has(decoded)) continue;
+        // Check if any discovered project already maps to this encoded dir
+        let alreadyFound = false;
+        for (const knownPath of projects.keys()) {
+          if (encodeProjectPath(knownPath) === dirName) {
+            alreadyFound = true;
+            break;
+          }
+        }
+        if (alreadyFound) continue;
+
+        const dirPath = path.join(CLAUDE_PROJECTS_DIR, dirName);
+        let jsonlFiles: string[];
+        try {
+          const files = await fs.readdir(dirPath);
+          jsonlFiles = files.filter((f) => f.endsWith(".jsonl"));
+        } catch { continue; }
+        if (jsonlFiles.length === 0) continue;
+
+        // Read first JSONL file to extract cwd
+        const samplePath = path.join(dirPath, jsonlFiles[0]!);
+        try {
+          for await (const msg of readJsonl<ClaudeMessage>(samplePath)) {
+            if (msg.cwd && await directoryExists(msg.cwd)) {
+              projects.set(msg.cwd, jsonlFiles.length);
+              break;
+            }
+          }
+        } catch { /* skip */ }
+      }
     } catch {
       // Never throw
     }
