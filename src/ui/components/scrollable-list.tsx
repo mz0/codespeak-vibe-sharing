@@ -88,11 +88,15 @@ export function ScrollableList<T>({
         const isActive = realIndex === cursor;
         return (
           <Box key={realIndex}>
-            <Text color={isActive ? "cyan" : undefined} dimColor={item.dimmed}>
+            <Text color={isActive ? "cyan" : undefined} bold={isActive} dimColor={item.dimmed}>
               {isActive ? ` ${indicator} ` : "   "}
               {item.label}
-              {item.suffix ? `  ${item.suffix}` : ""}
             </Text>
+            {item.suffix && (
+              <Text dimColor={!isActive || item.dimmed} color={isActive && !item.dimmed ? "cyan" : undefined}>
+                {"  "}{item.suffix}
+              </Text>
+            )}
           </Box>
         );
       })}

@@ -40,17 +40,18 @@ export function ProjectListScreen({
     const isShared = sharedPaths.has(p.path);
     const agents = p.agents
       .map((a) => {
-        const count = p.sessionCounts[Object.keys(p.sessionCounts).find(
-          (slug) => p.agents.includes(a),
-        ) ?? ""] ?? 0;
+        const agentSlug = a.toLowerCase().replace(/\s+/g, "-");
+        const slug = Object.keys(p.sessionCounts).find(
+          (s) => agentSlug.includes(s) || s.includes(agentSlug),
+        );
+        const count = slug ? p.sessionCounts[slug] : 0;
         return `${a} (${count})`;
       })
-      .join(" | ");
+      .join("  ");
 
     return {
       label: shortenPath(p.path),
       value: p.path,
-      description: agents,
       dimmed: isShared,
       suffix: isShared ? "[Shared]" : agents,
     };

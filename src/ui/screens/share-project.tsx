@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, useStdout } from "ink";
 import os from "node:os";
 import type { DiscoveredProject } from "../../sessions/types.js";
 import { Header } from "../components/header.js";
@@ -36,6 +36,8 @@ export function ShareProjectScreen({
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [firstName, setFirstName] = useState<string | null>(null);
+  const { stdout } = useStdout();
+  const width = Math.min(60, (stdout.columns ?? 80) - 4);
 
   const project = projects.find((p) => p.path === projectPath);
 
@@ -69,18 +71,21 @@ export function ShareProjectScreen({
     }
   });
 
+  const separator = "─".repeat(width);
+
   return (
     <Box flexDirection="column">
       {showHeader && <Header firstName={firstName} />}
       <Text bold color="cyan">
-        Project: {shortenPath(projectPath)}
+        {shortenPath(projectPath)}
       </Text>
-      {repoUrl && <Text>Repo:    {repoUrl}</Text>}
+      {repoUrl && <Text dimColor>{repoUrl}</Text>}
+      <Text dimColor>{separator}</Text>
 
       {/* Agent sessions */}
       {project && (
         <Box flexDirection="column" marginTop={1}>
-          <Text bold>Agents:</Text>
+          <Text bold color="yellow">Agents</Text>
           {project.agents.map((agent) => {
             const slug = Object.keys(project.sessionCounts).find((s) =>
               agent.toLowerCase().replace(/\s+/g, "-").includes(s) ||
@@ -90,7 +95,9 @@ export function ShareProjectScreen({
             return (
               <Text key={agent}>
                 {"  "}
-                {agent.padEnd(16)} {count} session{count !== 1 ? "s" : ""}
+                {agent.padEnd(16)}
+                <Text color="cyan" bold>{count}</Text>
+                {" "}session{count !== 1 ? "s" : ""}
               </Text>
             );
           })}
@@ -105,7 +112,7 @@ export function ShareProjectScreen({
       )}
       {stats && (
         <Box flexDirection="column" marginTop={1}>
-          <Text bold>Code:</Text>
+          <Text bold color="yellow">Code</Text>
           {stats.languages.map((lang) => (
             <Text key={lang.name}>
               {"  "}
@@ -114,11 +121,11 @@ export function ShareProjectScreen({
               {"  "}
               {lang.loc.toLocaleString().padStart(8)} LOC
               {"  "}
-              {lang.percent.toFixed(1).padStart(5)}%
+              <Text dimColor>{lang.percent.toFixed(1).padStart(5)}%</Text>
             </Text>
           ))}
           {stats.languages.length > 0 && (
-            <Text>
+            <Text dimColor>
               {"  "}
               {"Total".padEnd(16)}
               {String(stats.totalFiles).padStart(5)} files
@@ -132,16 +139,16 @@ export function ShareProjectScreen({
       {/* Git stats */}
       {stats && stats.isGitRepo && (
         <Box flexDirection="column" marginTop={1}>
-          <Text bold>Git:</Text>
-          <Text>  Branches: {stats.branchCount}</Text>
+          <Text bold color="yellow">Git</Text>
+          <Text>  Branches: <Text color="cyan" bold>{stats.branchCount}</Text></Text>
           <Text>
-            {"  "}Total commits: {stats.commitCount} (across all branches)
+            {"  "}Commits: <Text color="cyan" bold>{stats.commitCount}</Text> (across all branches)
           </Text>
           {stats.activitySummary && (
             <Text>  Activity: {stats.activitySummary}</Text>
           )}
-          <Text>  Untracked files: {stats.untrackedCount}</Text>
-          <Text>  Uncommitted changes: {stats.uncommittedCount} files</Text>
+          <Text>  Untracked: {stats.untrackedCount} files</Text>
+          <Text>  Uncommitted: {stats.uncommittedCount} files</Text>
         </Box>
       )}
 

@@ -36,14 +36,16 @@ export function TabBar({ tabs, activeTab, onSwitch, active = true }: TabBarProps
         const isActive = tab.id === activeTab;
         return (
           <React.Fragment key={tab.id}>
-            {i > 0 && <Text dimColor> | </Text>}
-            <Text
-              bold={isActive}
-              color={isActive ? "cyan" : undefined}
-              dimColor={!isActive}
-            >
-              {tab.label}
-            </Text>
+            {i > 0 && <Text dimColor>  </Text>}
+            {isActive ? (
+              <Text bold color="cyan" inverse>
+                {" "}{tab.label}{" "}
+              </Text>
+            ) : (
+              <Text dimColor>
+                {" "}{tab.label}{" "}
+              </Text>
+            )}
           </React.Fragment>
         );
       })}

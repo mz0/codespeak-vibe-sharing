@@ -10,8 +10,9 @@ export function Header({ firstName }: HeaderProps) {
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Text bold color="cyan">
-        {greeting}
+        codespeak-vibe-share
       </Text>
+      <Text>{greeting}</Text>
     </Box>
   );
 }
