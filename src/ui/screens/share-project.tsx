@@ -4,7 +4,7 @@ import os from "node:os";
 import type { DiscoveredProject } from "../../sessions/types.js";
 import { Header } from "../components/header.js";
 import { ActionBar } from "../components/action-bar.js";
-import { getGitRemoteUrl } from "../../utils/paths.js";
+import { getGitRemoteUrl, getGitWorktrees, type GitWorktree } from "../../utils/paths.js";
 import { getProjectStats, type ProjectStats } from "../../utils/project-stats.js";
 import { getFirstName } from "../../utils/user-info.js";
 
@@ -38,10 +38,9 @@ export function ShareProjectScreen({
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [firstName, setFirstName] = useState<string | null>(null);
+  const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
   const { stdout } = useStdout();
   const width = Math.min(60, (stdout.columns ?? 80) - 4);
-
-  const project = projects.find((p) => p.path === projectPath);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,11 +49,13 @@ export function ShareProjectScreen({
       getProjectStats(projectPath),
       getGitRemoteUrl(projectPath).catch(() => null),
       showHeader ? getFirstName() : Promise.resolve(null),
-    ]).then(([s, url, name]) => {
+      getGitWorktrees(projectPath).catch(() => [{ path: projectPath, branch: null }] as GitWorktree[]),
+    ]).then(([s, url, name, wt]) => {
       if (cancelled) return;
       setStats(s);
       setRepoUrl(url);
       setFirstName(name);
+      setWorktrees(wt);
       setLoading(false);
     });
 
@@ -62,6 +63,22 @@ export function ShareProjectScreen({
       cancelled = true;
     };
   }, [projectPath, showHeader]);
+
+  // Aggregate sessions across all worktrees
+  const worktreePaths = new Set(worktrees.map((wt) => wt.path));
+  const relatedProjects = projects.filter((p) => worktreePaths.has(p.path));
+  const aggregatedAgents = new Set<string>();
+  const aggregatedCounts: Record<string, number> = {};
+  for (const rp of relatedProjects) {
+    for (const agent of rp.agents) aggregatedAgents.add(agent);
+    for (const [slug, count] of Object.entries(rp.sessionCounts)) {
+      aggregatedCounts[slug] = (aggregatedCounts[slug] ?? 0) + count;
+    }
+  }
+  // Fall back to direct match if no worktree aggregation
+  const directProject = projects.find((p) => p.path === projectPath);
+  const effectiveAgents = aggregatedAgents.size > 0 ? [...aggregatedAgents] : directProject?.agents ?? [];
+  const effectiveCounts = Object.keys(aggregatedCounts).length > 0 ? aggregatedCounts : directProject?.sessionCounts ?? {};
 
   const separator = "─".repeat(width);
 
@@ -72,18 +89,21 @@ export function ShareProjectScreen({
         {shortenPath(projectPath)}
       </Text>
       {repoUrl && <Text dimColor>{repoUrl}</Text>}
+      {worktrees.length > 1 && (
+        <Text dimColor>{worktrees.length} worktrees</Text>
+      )}
       <Text dimColor>{separator}</Text>
 
       {/* Agent sessions */}
-      {project && (
+      {effectiveAgents.length > 0 && (
         <Box flexDirection="column" marginTop={1}>
           <Text bold color="yellow">Agents</Text>
-          {project.agents.map((agent) => {
-            const slug = Object.keys(project.sessionCounts).find((s) =>
+          {effectiveAgents.map((agent) => {
+            const slug = Object.keys(effectiveCounts).find((s) =>
               agent.toLowerCase().replace(/\s+/g, "-").includes(s) ||
               s.includes(agent.toLowerCase().replace(/\s+/g, "-")),
             );
-            const count = slug ? project.sessionCounts[slug] : 0;
+            const count = slug ? effectiveCounts[slug] : 0;
             return (
               <Text key={agent}>
                 {"  "}
