@@ -195,7 +195,7 @@ export class ClaudeCodeProvider implements AgentProvider {
             agentName: this.name,
             sessionId: entry.sessionId,
             summary: entry.summary ?? null,
-            firstPrompt: entry.firstPrompt ? stripIdeTags(entry.firstPrompt) : null,
+            firstPrompt: entry.firstPrompt ? stripIdeTags(entry.firstPrompt) || null : null,
             messageCount: entry.messageCount ?? null,
             created: entry.created ?? null,
             modified: entry.modified ?? null,
@@ -258,7 +258,8 @@ export class ClaudeCodeProvider implements AgentProvider {
                   (c as { type: string }).type === "text",
               ) as { text?: string } | undefined;
               if (textBlock?.text) {
-                firstPrompt = stripIdeTags(textBlock.text).slice(0, 200);
+                const stripped = stripIdeTags(textBlock.text).slice(0, 200);
+                firstPrompt = stripped || null;
               }
             }
           }
@@ -349,7 +350,7 @@ export class ClaudeCodeProvider implements AgentProvider {
               (c as { type: string }).type === "text",
           ) as { text?: string } | undefined;
           if (textBlock?.text) {
-            return stripIdeTags(textBlock.text).slice(0, 200);
+            return stripIdeTags(textBlock.text).slice(0, 200) || null;
           }
         }
       }

@@ -84,7 +84,7 @@ export function AgentTab({ projectPath, agentSlug, onPreviewChange }: AgentTabPr
   }
 
   const items: ListItem<string>[] = sessions.map((s) => {
-    const desc = s.summary ?? s.firstPrompt ?? s.sessionId;
+    const desc = s.summary || s.firstPrompt || "(empty session)";
     const truncated = desc.length > 60 ? desc.slice(0, 57) + "..." : desc;
     const meta: string[] = [];
     if (s.messageCount) meta.push(`${s.messageCount} msgs`);
