@@ -50,7 +50,7 @@ export function ConsentScreen({ projectPath, onConfirm, onBack }: ConsentScreenP
 
       <KeyHint
         hints={[
-          { key: "Enter", label: "share" },
+          { key: "Enter", label: "share", primary: true },
           { key: "Esc", label: "back" },
         ]}
       />
