@@ -6,6 +6,7 @@ import path from "node:path";
 
 interface CodeTabProps {
   projectPath: string;
+  onPreviewChange?: (active: boolean) => void;
 }
 
 interface FlatNode {
@@ -24,7 +25,7 @@ function flattenTree(nodes: FileTreeNode[], depth: number = 0): FlatNode[] {
   return result;
 }
 
-export function CodeTab({ projectPath }: CodeTabProps) {
+export function CodeTab({ projectPath, onPreviewChange }: CodeTabProps) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState(0);
@@ -50,9 +51,19 @@ export function CodeTab({ projectPath }: CodeTabProps) {
   const flat = flattenTree(tree);
   const pageSize = 20;
 
+  const openPreview = (filePath: string) => {
+    setPreviewFile(filePath);
+    onPreviewChange?.(true);
+  };
+
+  const closePreview = () => {
+    setPreviewFile(null);
+    onPreviewChange?.(false);
+  };
+
   useInput((input, key) => {
     if (previewFile) {
-      if (key.escape) setPreviewFile(null);
+      if (key.escape) closePreview();
       return;
     }
 
@@ -69,7 +80,7 @@ export function CodeTab({ projectPath }: CodeTabProps) {
         item.node.expanded = !item.node.expanded;
         setTree([...tree]); // Force re-render
       } else if (item.node.shared) {
-        setPreviewFile(path.join(projectPath, item.node.path));
+        openPreview(path.join(projectPath, item.node.path));
       }
     }
   });
@@ -80,7 +91,7 @@ export function CodeTab({ projectPath }: CodeTabProps) {
     return (
       <FilePreview
         filePath={previewFile}
-        onBack={() => setPreviewFile(null)}
+        onBack={closePreview}
       />
     );
   }

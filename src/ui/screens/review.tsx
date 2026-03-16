@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { DiscoveredProject } from "../../sessions/types.js";
 import { TabBar } from "../components/tab-bar.js";
@@ -25,6 +25,7 @@ export function ReviewScreen({
   onBack,
 }: ReviewScreenProps) {
   const project = projects.find((p) => p.path === projectPath);
+  const [hasActivePreview, setHasActivePreview] = useState(false);
 
   // Build tabs: one per agent + Code + git
   const agentTabs = (project?.agents ?? []).map((a) => {
@@ -41,6 +42,7 @@ export function ReviewScreen({
   ];
 
   useInput((input, key) => {
+    if (hasActivePreview) return; // Let sub-component handle Esc
     if (key.escape) {
       onBack();
     } else if (input === "s" || input === "S") {
@@ -57,14 +59,23 @@ export function ReviewScreen({
         <Text dimColor>Esc back</Text>
       </Box>
 
-      <TabBar tabs={tabs} activeTab={activeTab} onSwitch={onSwitchTab} />
+      <TabBar tabs={tabs} activeTab={activeTab} onSwitch={onSwitchTab} active={!hasActivePreview} />
       <Text dimColor>{"─".repeat(50)}</Text>
 
       <Box marginTop={1} flexDirection="column">
         {activeTab.startsWith("agent:") && (
-          <AgentTab projectPath={projectPath} agentSlug={activeTab.replace("agent:", "")} />
+          <AgentTab
+            projectPath={projectPath}
+            agentSlug={activeTab.replace("agent:", "")}
+            onPreviewChange={setHasActivePreview}
+          />
         )}
-        {activeTab === "code" && <CodeTab projectPath={projectPath} />}
+        {activeTab === "code" && (
+          <CodeTab
+            projectPath={projectPath}
+            onPreviewChange={setHasActivePreview}
+          />
+        )}
         {activeTab === "git" && <GitTab projectPath={projectPath} />}
       </Box>
 

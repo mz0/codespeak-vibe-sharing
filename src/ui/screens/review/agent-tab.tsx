@@ -8,9 +8,10 @@ import type { DiscoveredSession } from "../../../sessions/types.js";
 interface AgentTabProps {
   projectPath: string;
   agentSlug: string;
+  onPreviewChange?: (active: boolean) => void;
 }
 
-export function AgentTab({ projectPath, agentSlug }: AgentTabProps) {
+export function AgentTab({ projectPath, agentSlug, onPreviewChange }: AgentTabProps) {
   const [sessions, setSessions] = useState<DiscoveredSession[]>([]);
   const [loading, setLoading] = useState(true);
 
