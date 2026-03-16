@@ -11,18 +11,17 @@ interface TabBarProps {
   activeTab: string;
   onSwitch: (tabId: string) => void;
   active?: boolean;
-  useArrows?: boolean;
 }
 
-export function TabBar({ tabs, activeTab, onSwitch, active = true, useArrows = true }: TabBarProps) {
+export function TabBar({ tabs, activeTab, onSwitch, active = true }: TabBarProps) {
   useInput(
     (input, key) => {
       if (!active) return;
-      if (key.tab || (useArrows && key.rightArrow)) {
+      if (key.rightArrow) {
         const idx = tabs.findIndex((t) => t.id === activeTab);
         const next = (idx + 1) % tabs.length;
         onSwitch(tabs[next]!.id);
-      } else if (useArrows && key.leftArrow) {
+      } else if (key.leftArrow) {
         const idx = tabs.findIndex((t) => t.id === activeTab);
         const prev = (idx - 1 + tabs.length) % tabs.length;
         onSwitch(tabs[prev]!.id);

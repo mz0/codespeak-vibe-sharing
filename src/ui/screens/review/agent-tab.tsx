@@ -9,10 +9,11 @@ import type { DiscoveredSession } from "../../../sessions/types.js";
 interface AgentTabProps {
   projectPath: string;
   agentSlug: string;
+  active?: boolean;
   onPreviewChange?: (active: boolean) => void;
 }
 
-export function AgentTab({ projectPath, agentSlug, onPreviewChange }: AgentTabProps) {
+export function AgentTab({ projectPath, agentSlug, active = true, onPreviewChange }: AgentTabProps) {
   const [sessions, setSessions] = useState<DiscoveredSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
@@ -102,7 +103,7 @@ export function AgentTab({ projectPath, agentSlug, onPreviewChange }: AgentTabPr
       <Text bold>
         Sessions ({sessions.length}):
       </Text>
-      <ScrollableList items={items} onSelect={openPreview} />
+      <ScrollableList items={items} onSelect={openPreview} active={active && !previewSessionId} />
     </Box>
   );
 }

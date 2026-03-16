@@ -6,6 +6,7 @@ import path from "node:path";
 
 interface CodeTabProps {
   projectPath: string;
+  active?: boolean;
   onPreviewChange?: (active: boolean) => void;
 }
 
@@ -25,7 +26,7 @@ function flattenTree(nodes: FileTreeNode[], depth: number = 0): FlatNode[] {
   return result;
 }
 
-export function CodeTab({ projectPath, onPreviewChange }: CodeTabProps) {
+export function CodeTab({ projectPath, active = true, onPreviewChange }: CodeTabProps) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState(0);
@@ -67,6 +68,7 @@ export function CodeTab({ projectPath, onPreviewChange }: CodeTabProps) {
       if (key.escape) closePreview();
       return;
     }
+    if (!active) return;
 
     if (key.upArrow) {
       setCursor((c) => Math.max(0, c - 1));
@@ -84,7 +86,7 @@ export function CodeTab({ projectPath, onPreviewChange }: CodeTabProps) {
         openPreview(path.join(projectPath, item.node.path));
       }
     }
-  });
+  }, { isActive: active || !!previewFile });
 
   if (loading) return <Text dimColor>Loading file tree...</Text>;
 

@@ -8,6 +8,7 @@ const execFileAsync = promisify(execFile);
 
 interface GitTabProps {
   projectPath: string;
+  active?: boolean;
 }
 
 interface BranchInfo {
@@ -15,7 +16,7 @@ interface BranchInfo {
   commits: string[];
 }
 
-export function GitTab({ projectPath }: GitTabProps) {
+export function GitTab({ projectPath, active = true }: GitTabProps) {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
@@ -94,6 +95,7 @@ export function GitTab({ projectPath }: GitTabProps) {
         items={branchItems}
         onSelect={(name) => setSelectedBranch(name)}
         pageSize={10}
+        active={active}
       />
 
       {selected && selected.commits.length > 0 && (
