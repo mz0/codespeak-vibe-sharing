@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
+import { KeyHint } from "./key-hint.js";
+import { Spinner } from "./spinner.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -202,14 +204,14 @@ export function SessionPreview({
   });
 
   if (loading) {
-    return <Text dimColor>Loading session...</Text>;
+    return <Spinner label="Loading session..." />;
   }
 
   if (messages.length === 0) {
     return (
       <Box flexDirection="column">
         <Text dimColor>No messages found in this session.</Text>
-        <Text dimColor>Esc to go back</Text>
+        <KeyHint hints={[{ key: "Esc", label: "back" }]} />
       </Box>
     );
   }
@@ -230,7 +232,7 @@ export function SessionPreview({
     <Box flexDirection="column">
       <Box marginBottom={1}>
         <Text bold dimColor>Session: {sessionId.slice(0, 20)}...</Text>
-        <Text dimColor>  ({messages.length} messages)  Esc back  ↑↓ scroll</Text>
+        <Text dimColor>  ({messages.length} messages)</Text>
       </Box>
       {scroll > 0 && <Text dimColor>  ↑ {scroll} more</Text>}
       {visible.map((item, i) => {
@@ -247,6 +249,10 @@ export function SessionPreview({
       {scroll + pageSize < displayLines.length && (
         <Text dimColor>  ↓ {displayLines.length - scroll - pageSize} more</Text>
       )}
+      <KeyHint hints={[
+        { key: "↑↓", label: "scroll" },
+        { key: "Esc", label: "back" },
+      ]} />
     </Box>
   );
 }

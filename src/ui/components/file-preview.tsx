@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
+import { KeyHint } from "./key-hint.js";
 import fs from "node:fs/promises";
 
 interface FilePreviewProps {
@@ -85,6 +86,10 @@ export function FilePreview({
           {lines.length}
         </Text>
       )}
+      <KeyHint hints={[
+        { key: "↑↓", label: "scroll" },
+        { key: "Esc", label: "back" },
+      ]} />
     </Box>
   );
 }
