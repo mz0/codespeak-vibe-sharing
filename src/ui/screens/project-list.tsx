@@ -102,8 +102,8 @@ export function ProjectListScreen({
       <KeyHint
         hints={[
           { key: "↑↓", label: "navigate" },
-          { key: "Enter", label: "stats" },
-          { key: "S", label: "share" },
+          { key: "Enter", label: "stats", primary: true },
+          { key: "S", label: "share", primary: true },
           { key: "Q", label: "quit" },
         ]}
       />

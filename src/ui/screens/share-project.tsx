@@ -147,7 +147,7 @@ export function ShareProjectScreen({
 
       <KeyHint
         hints={[
-          { key: "S", label: "share" },
+          { key: "S", label: "share", primary: true },
           { key: "R", label: "review before sharing" },
           { key: "Esc", label: "back" },
         ]}

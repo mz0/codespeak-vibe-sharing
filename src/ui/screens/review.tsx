@@ -52,12 +52,8 @@ export function ReviewScreen({
 
   return (
     <Box flexDirection="column">
-      <Box marginBottom={1} justifyContent="space-between">
-        <Text bold color="green">
-          [S] Share
-        </Text>
-        <Text dimColor>Esc back</Text>
-      </Box>
+      <Box marginBottom={1} />
+
 
       <TabBar tabs={tabs} activeTab={activeTab} onSwitch={onSwitchTab} active={!hasActivePreview} />
       <Text dimColor>{"─".repeat(50)}</Text>
@@ -82,7 +78,7 @@ export function ReviewScreen({
       <KeyHint
         hints={[
           { key: "Tab/←→", label: "switch tabs" },
-          { key: "S", label: "share" },
+          { key: "S", label: "share", primary: true },
           { key: "Esc", label: "back" },
         ]}
       />
