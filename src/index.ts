@@ -10,10 +10,34 @@ program
     "Share your vibe-coded project and AI coding sessions with Codespeak",
   )
   .version(TOOL_VERSION)
+  .option("--project", "Use legacy linear flow (detect project at cwd)")
   .option("--dry-run", "Show what would be included without creating archive")
   .option("--no-sessions", "Exclude AI coding sessions")
   .option("--output <path>", "Save zip locally instead of uploading")
   .option("--verbose", "Show detailed progress")
-  .action(run);
+  .action(async (options) => {
+    if (options.project) {
+      // Legacy flow: existing linear CLI
+      await run(options);
+    } else {
+      // New interactive flow with ink UI
+      const { startApp } = await import("./ui/app.js");
+      const { discoverAllProjects } = await import(
+        "./sessions/global-discovery.js"
+      );
+      const { determineRoute } = await import("./routing.js");
+
+      const cwd = process.cwd();
+
+      startApp({
+        projects: [],
+        onDiscoverProjects: async () => {
+          const result = await discoverAllProjects();
+          return result.projects;
+        },
+        initialScreen: undefined, // LoadingScreen will handle discovery + routing
+      });
+    }
+  });
 
 program.parse();

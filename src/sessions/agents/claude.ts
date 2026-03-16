@@ -6,7 +6,7 @@ import {
   CLAUDE_HISTORY_FILE,
   CLAUDE_DIR,
 } from "../../config.js";
-import { encodeProjectPath } from "../../utils/paths.js";
+import { encodeProjectPath, decodeProjectPath } from "../../utils/paths.js";
 import {
   directoryExists,
   fileExists,
@@ -65,6 +65,56 @@ export class ClaudeCodeProvider implements AgentProvider {
 
   getArchiveRoot(): string {
     return CLAUDE_DIR;
+  }
+
+  async discoverProjects(): Promise<Map<string, number>> {
+    const projects = new Map<string, number>();
+
+    try {
+      // Strategy 1: Scan project directories
+      let dirs: string[];
+      try {
+        const entries = await fs.readdir(CLAUDE_PROJECTS_DIR, { withFileTypes: true });
+        dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+      } catch {
+        dirs = [];
+      }
+
+      for (const dirName of dirs) {
+        const decoded = decodeProjectPath(dirName);
+        if (!(await directoryExists(decoded))) continue;
+
+        const dirPath = path.join(CLAUDE_PROJECTS_DIR, dirName);
+        let jsonlCount = 0;
+        try {
+          const files = await fs.readdir(dirPath);
+          jsonlCount = files.filter((f) => f.endsWith(".jsonl")).length;
+        } catch {
+          continue;
+        }
+
+        if (jsonlCount > 0) {
+          projects.set(decoded, jsonlCount);
+        }
+      }
+
+      // Strategy 2: Supplement from history.jsonl
+      if (await fileExists(CLAUDE_HISTORY_FILE)) {
+        try {
+          for await (const entry of readJsonl<HistoryEntry>(CLAUDE_HISTORY_FILE)) {
+            if (entry.project && !projects.has(entry.project)) {
+              projects.set(entry.project, (projects.get(entry.project) ?? 0) + 1);
+            }
+          }
+        } catch {
+          // Skip unreadable history
+        }
+      }
+    } catch {
+      // Never throw
+    }
+
+    return projects;
   }
 
   async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {

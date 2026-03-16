@@ -18,6 +18,28 @@ export function encodeProjectPath(absolutePath: string): string {
 }
 
 /**
+ * Decode a Claude Code encoded project path back to an absolute path.
+ * Inverse of encodeProjectPath: replace "-" with "/".
+ * Note: this is lossy for paths that originally contained "-".
+ * Caller should validate the decoded path exists on disk.
+ */
+export function decodeProjectPath(encoded: string): string {
+  return encoded.replace(/-/g, "/");
+}
+
+/**
+ * Normalize a filesystem path for comparison.
+ * Strips trailing slashes. On macOS (case-insensitive), lowercases.
+ */
+export function normalizePath(p: string): string {
+  let normalized = p.replace(/\/+$/, "");
+  if (process.platform === "darwin") {
+    normalized = normalized.toLowerCase();
+  }
+  return normalized;
+}
+
+/**
  * Get the Claude Code session directory for a project path.
  */
 export function getClaudeSessionDir(projectPath: string): string {

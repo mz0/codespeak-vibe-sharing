@@ -23,6 +23,15 @@ export interface ProjectContext {
   allWorktreePaths: string[];
 }
 
+export interface DiscoveredProject {
+  /** Absolute project path */
+  path: string;
+  /** Agent display names that have sessions for this project */
+  agents: string[];
+  /** Agent slug → session count */
+  sessionCounts: Record<string, number>;
+}
+
 export interface AgentProvider {
   /** Display name for this agent (e.g. "Claude Code") */
   readonly name: string;
@@ -31,6 +40,12 @@ export interface AgentProvider {
 
   /** Check if this agent is installed / has data on the system */
   detect(): Promise<boolean>;
+
+  /**
+   * Discover all project paths that have sessions for this agent.
+   * Returns a map from absolute project path → approximate session count.
+   */
+  discoverProjects(): Promise<Map<string, number>>;
 
   /**
    * Find sessions associated with the given project context.

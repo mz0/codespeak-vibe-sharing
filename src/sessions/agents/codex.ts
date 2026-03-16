@@ -8,6 +8,7 @@ import {
   safeReadJson,
   readJsonl,
   getFileSize,
+  readLines,
 } from "../../utils/fs-helpers.js";
 import type { AgentProvider, DiscoveredSession, ProjectContext } from "../types.js";
 
@@ -49,6 +50,20 @@ export class CodexProvider implements AgentProvider {
 
   getArchiveRoot(): string {
     return CODEX_DIR;
+  }
+
+  async discoverProjects(): Promise<Map<string, number>> {
+    const projects = new Map<string, number>();
+
+    try {
+      if (!(await directoryExists(CODEX_SESSIONS_DIR))) return projects;
+
+      await this.scanDirForProjects(CODEX_SESSIONS_DIR, projects);
+    } catch {
+      // Never throw
+    }
+
+    return projects;
   }
 
   async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {
@@ -129,6 +144,76 @@ export class CodexProvider implements AgentProvider {
       ) {
         const session = await this.parseJsonlSession(fullPath, projectPath);
         if (session) results.push(session);
+      }
+    }
+  }
+
+  private async scanDirForProjects(
+    dir: string,
+    results: Map<string, number>,
+  ): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        await this.scanDirForProjects(fullPath, results);
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+
+      const isJson =
+        entry.name.endsWith(".json") && entry.name.startsWith("rollout-");
+      const isJsonl =
+        entry.name.endsWith(".jsonl") && entry.name.startsWith("rollout-");
+      if (!isJson && !isJsonl) continue;
+
+      let cwd: string | null = null;
+
+      try {
+        if (isJson) {
+          const data = await safeReadJson<CodexJsonSession>(fullPath);
+          cwd = data?.session?.cwd ?? null;
+        } else {
+          // JSONL: read first few lines to find session_meta or turn_context with cwd
+          let linesRead = 0;
+          for await (const line of readLines(fullPath)) {
+            if (linesRead++ > 10) break;
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const entry = JSON.parse(trimmed) as CodexJsonlEntry;
+              if (entry.type === "session_meta") {
+                const p = entry.payload as { cwd?: string };
+                if (p?.cwd) {
+                  cwd = p.cwd;
+                  break;
+                }
+              } else if (entry.type === "turn_context") {
+                const p = entry.payload as { cwd?: string };
+                if (p?.cwd) {
+                  cwd = p.cwd;
+                  break;
+                }
+              }
+            } catch {
+              // Skip malformed lines
+            }
+          }
+        }
+      } catch {
+        continue;
+      }
+
+      if (cwd) {
+        results.set(cwd, (results.get(cwd) ?? 0) + 1);
       }
     }
   }

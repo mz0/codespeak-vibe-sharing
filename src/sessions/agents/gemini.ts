@@ -50,6 +50,39 @@ export class GeminiProvider implements AgentProvider {
     return GEMINI_DIR;
   }
 
+  async discoverProjects(): Promise<Map<string, number>> {
+    const projects = new Map<string, number>();
+
+    try {
+      const projectsData = await safeReadJson<GeminiProjectsJson>(GEMINI_PROJECTS_FILE);
+      if (!projectsData?.projects) return projects;
+
+      for (const [projectPath, slug] of Object.entries(projectsData.projects)) {
+        const chatsDir = path.join(GEMINI_TMP_DIR, slug, "chats");
+        let sessionCount = 0;
+
+        if (await directoryExists(chatsDir)) {
+          try {
+            const entries = await fs.readdir(chatsDir);
+            sessionCount = entries.filter(
+              (f) => f.startsWith("session-") && f.endsWith(".json"),
+            ).length;
+          } catch {
+            // Skip unreadable dir
+          }
+        }
+
+        if (sessionCount > 0) {
+          projects.set(projectPath, sessionCount);
+        }
+      }
+    } catch {
+      // Never throw
+    }
+
+    return projects;
+  }
+
   async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {
     const { projectPath } = context;
     // Try new format first

@@ -39,6 +39,27 @@ export class ClineProvider implements AgentProvider {
     return CLINE_DIR;
   }
 
+  async discoverProjects(): Promise<Map<string, number>> {
+    const projects = new Map<string, number>();
+
+    try {
+      const history = await safeReadJson<ClineTaskHistoryEntry[]>(
+        CLINE_HISTORY_FILE,
+      );
+      if (!history || !Array.isArray(history)) return projects;
+
+      for (const entry of history) {
+        if (!entry.cwdOnTaskInitialization) continue;
+        const cwd = entry.cwdOnTaskInitialization;
+        projects.set(cwd, (projects.get(cwd) ?? 0) + 1);
+      }
+    } catch {
+      // Never throw
+    }
+
+    return projects;
+  }
+
   async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {
     const history = await safeReadJson<ClineTaskHistoryEntry[]>(
       CLINE_HISTORY_FILE,

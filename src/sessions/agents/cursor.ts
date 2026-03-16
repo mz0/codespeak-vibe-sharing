@@ -104,6 +104,97 @@ export class CursorProvider implements AgentProvider {
     return CURSOR_DIR;
   }
 
+  async discoverProjects(): Promise<Map<string, number>> {
+    const projects = new Map<string, number>();
+
+    try {
+      // Step 1: Build a map of md5(path) → absolute path from workspace.json files
+      const hashToPath = new Map<string, string>();
+
+      if (await directoryExists(CURSOR_WORKSPACE_STORAGE_DIR)) {
+        let wsEntries: import("node:fs").Dirent[];
+        try {
+          wsEntries = await fs.readdir(CURSOR_WORKSPACE_STORAGE_DIR, {
+            withFileTypes: true,
+          });
+        } catch {
+          wsEntries = [];
+        }
+
+        for (const wsEntry of wsEntries) {
+          if (!wsEntry.isDirectory()) continue;
+          const wsJsonPath = path.join(
+            CURSOR_WORKSPACE_STORAGE_DIR,
+            wsEntry.name,
+            "workspace.json",
+          );
+          const wsJson = await safeReadJson<{ folder?: string }>(wsJsonPath);
+          if (!wsJson?.folder) continue;
+
+          // folder is "file:///absolute/path"
+          let folderPath: string;
+          try {
+            folderPath = new URL(wsJson.folder).pathname;
+          } catch {
+            continue;
+          }
+          if (!folderPath) continue;
+
+          const hash = md5Hash(folderPath);
+          hashToPath.set(hash, folderPath);
+        }
+      }
+
+      // Step 2: List chat directories and match against the hash map
+      if (await directoryExists(CURSOR_CHATS_DIR)) {
+        let chatEntries: import("node:fs").Dirent[];
+        try {
+          chatEntries = await fs.readdir(CURSOR_CHATS_DIR, {
+            withFileTypes: true,
+          });
+        } catch {
+          chatEntries = [];
+        }
+
+        for (const chatEntry of chatEntries) {
+          if (!chatEntry.isDirectory()) continue;
+
+          const projectPath = hashToPath.get(chatEntry.name);
+          if (!projectPath) continue;
+
+          // Count session subdirectories (each contains a store.db)
+          const chatDir = path.join(CURSOR_CHATS_DIR, chatEntry.name);
+          let sessionCount = 0;
+          try {
+            const sessionEntries = await fs.readdir(chatDir, {
+              withFileTypes: true,
+            });
+            for (const se of sessionEntries) {
+              if (!se.isDirectory()) continue;
+              const dbPath = path.join(chatDir, se.name, "store.db");
+              if (await fileExists(dbPath)) {
+                sessionCount++;
+              }
+            }
+          } catch {
+            continue;
+          }
+
+          if (sessionCount > 0) {
+            projects.set(
+              projectPath,
+              (projects.get(projectPath) ?? 0) + sessionCount,
+            );
+          }
+        }
+      }
+    } catch {
+      // Never throw
+    }
+
+    return projects;
+  }
+
   async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {
     this.projectPath = context.projectPath;
     const seenIds = new Set<string>();
