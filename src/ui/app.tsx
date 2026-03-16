@@ -1,8 +1,6 @@
 import React, { useReducer, useCallback, useState, useEffect } from "react";
 import { Box, Text, render, useApp, useInput } from "ink";
 import type { DiscoveredProject } from "../sessions/types.js";
-import { Header } from "./components/header.js";
-import { KeyHint } from "./components/key-hint.js";
 import { ProjectListScreen } from "./screens/project-list.js";
 import { ShareProjectScreen } from "./screens/share-project.js";
 import { ConsentScreen } from "./screens/consent.js";
@@ -160,7 +158,6 @@ export function App({ initialScreen, projects: initialProjects, onDiscoverProjec
           projects={projects}
           sharedPaths={sharedPaths}
           onSelect={(path) => dispatch({ type: "SELECT_PROJECT", projectPath: path })}
-          onShare={(path) => dispatch({ type: "GO_CONSENT", projectPath: path })}
           onQuit={exit}
         />
       )}
@@ -173,6 +170,7 @@ export function App({ initialScreen, projects: initialProjects, onDiscoverProjec
           onShare={() => dispatch({ type: "GO_CONSENT", projectPath: screen.projectPath })}
           onReview={() => dispatch({ type: "GO_REVIEW", projectPath: screen.projectPath })}
           onBack={() => dispatch({ type: "BACK" })}
+          onAllProjects={() => dispatch({ type: "GO_PROJECT_LIST" })}
         />
       )}
 

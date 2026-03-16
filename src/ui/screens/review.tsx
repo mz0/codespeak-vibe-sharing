@@ -1,8 +1,8 @@
 import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text } from "ink";
 import type { DiscoveredProject } from "../../sessions/types.js";
 import { TabBar } from "../components/tab-bar.js";
-import { KeyHint } from "../components/key-hint.js";
+import { ActionBar } from "../components/action-bar.js";
 import { AgentTab } from "./review/agent-tab.js";
 import { CodeTab } from "./review/code-tab.js";
 import { GitTab } from "./review/git-tab.js";
@@ -41,21 +41,11 @@ export function ReviewScreen({
     { id: "git", label: "git" },
   ];
 
-  useInput((input, key) => {
-    if (hasActivePreview) return; // Let sub-component handle Esc
-    if (key.escape) {
-      onBack();
-    } else if (input === "s" || input === "S") {
-      onShare();
-    }
-  });
-
   return (
     <Box flexDirection="column">
       <Box marginBottom={1} />
 
-
-      <TabBar tabs={tabs} activeTab={activeTab} onSwitch={onSwitchTab} active={!hasActivePreview} />
+      <TabBar tabs={tabs} activeTab={activeTab} onSwitch={onSwitchTab} active={!hasActivePreview} useArrows={false} />
       <Text dimColor>{"─".repeat(50)}</Text>
 
       <Box marginTop={1} flexDirection="column">
@@ -75,12 +65,13 @@ export function ReviewScreen({
         {activeTab === "git" && <GitTab projectPath={projectPath} />}
       </Box>
 
-      <KeyHint
-        hints={[
-          { key: "Tab/←→", label: "switch tabs" },
-          { key: "S", label: "share", primary: true },
-          { key: "Esc", label: "back" },
+      <ActionBar
+        actions={[
+          { label: "Share", onAction: onShare, primary: true },
+          { label: "Back", onAction: onBack },
         ]}
+        active={!hasActivePreview}
+        onEsc={onBack}
       />
     </Box>
   );

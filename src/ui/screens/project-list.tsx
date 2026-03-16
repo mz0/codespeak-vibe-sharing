@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text } from "ink";
 import os from "node:os";
 import type { DiscoveredProject } from "../../sessions/types.js";
 import { Header } from "../components/header.js";
@@ -11,7 +11,6 @@ interface ProjectListScreenProps {
   projects: DiscoveredProject[];
   sharedPaths: Set<string>;
   onSelect: (path: string) => void;
-  onShare: (path: string) => void;
   onQuit: () => void;
 }
 
@@ -26,11 +25,9 @@ export function ProjectListScreen({
   projects,
   sharedPaths,
   onSelect,
-  onShare,
   onQuit,
 }: ProjectListScreenProps) {
   const [firstName, setFirstName] = useState<string | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   useEffect(() => {
     getFirstName().then(setFirstName).catch(() => setFirstName(null));
@@ -57,15 +54,6 @@ export function ProjectListScreen({
     };
   });
 
-  useInput((input) => {
-    if (input === "s" || input === "S") {
-      const path = selectedPath ?? items[0]?.value;
-      if (path && !sharedPaths.has(path)) {
-        onShare(path);
-      }
-    }
-  });
-
   if (projects.length === 0) {
     return (
       <Box flexDirection="column">
@@ -83,17 +71,9 @@ export function ProjectListScreen({
         <ScrollableList
           items={items}
           onSelect={onSelect}
-          onHighlight={(value) => setSelectedPath(value)}
           onKey={(input) => {
             if (input === "q" || input === "Q") {
               onQuit();
-              return true;
-            }
-            if (input === "s" || input === "S") {
-              const path = selectedPath ?? items[0]?.value;
-              if (path && !sharedPaths.has(path)) {
-                onShare(path);
-              }
               return true;
             }
             return false;
@@ -103,8 +83,7 @@ export function ProjectListScreen({
       <KeyHint
         hints={[
           { key: "↑↓", label: "navigate" },
-          { key: "Enter", label: "stats", primary: true },
-          { key: "S", label: "share", primary: true },
+          { key: "Enter", label: "select", primary: true },
           { key: "Q", label: "quit" },
         ]}
       />

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Box, Text, useInput, useStdout } from "ink";
+import { Box, Text, useStdout } from "ink";
 import os from "node:os";
 import type { DiscoveredProject } from "../../sessions/types.js";
 import { Header } from "../components/header.js";
-import { KeyHint } from "../components/key-hint.js";
+import { ActionBar } from "../components/action-bar.js";
 import { getGitRemoteUrl } from "../../utils/paths.js";
 import { getProjectStats, type ProjectStats } from "../../utils/project-stats.js";
 import { getFirstName } from "../../utils/user-info.js";
@@ -15,6 +15,7 @@ interface ShareProjectScreenProps {
   onShare: () => void;
   onReview: () => void;
   onBack: () => void;
+  onAllProjects: () => void;
 }
 
 function shortenPath(p: string): string {
@@ -31,6 +32,7 @@ export function ShareProjectScreen({
   onShare,
   onReview,
   onBack,
+  onAllProjects,
 }: ShareProjectScreenProps) {
   const [stats, setStats] = useState<ProjectStats | null>(null);
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
@@ -60,16 +62,6 @@ export function ShareProjectScreen({
       cancelled = true;
     };
   }, [projectPath, showHeader]);
-
-  useInput((input, key) => {
-    if (key.escape) {
-      onBack();
-    } else if (input === "s" || input === "S") {
-      onShare();
-    } else if (input === "r" || input === "R") {
-      onReview();
-    }
-  });
 
   const separator = "─".repeat(width);
 
@@ -152,12 +144,13 @@ export function ShareProjectScreen({
         </Box>
       )}
 
-      <KeyHint
-        hints={[
-          { key: "S", label: "share", primary: true },
-          { key: "R", label: "review before sharing" },
-          { key: "Esc", label: "back" },
+      <ActionBar
+        actions={[
+          { label: "Share", onAction: onShare, primary: true },
+          { label: "Review", onAction: onReview },
+          { label: "All Projects", onAction: onAllProjects },
         ]}
+        onEsc={onAllProjects}
       />
     </Box>
   );
