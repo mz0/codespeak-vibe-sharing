@@ -35,7 +35,16 @@ export function ProjectListScreen({
     getFirstName().then(setFirstName).catch(() => setFirstName(null));
   }, []);
 
-  const items: ListItem<string>[] = projects.map((p) => {
+  // Sort: current dir first, then original order
+  const sorted = currentProjectPath
+    ? [...projects].sort((a, b) => {
+        if (a.path === currentProjectPath) return -1;
+        if (b.path === currentProjectPath) return 1;
+        return 0;
+      })
+    : projects;
+
+  const items: ListItem<string>[] = sorted.map((p) => {
     const isShared = sharedPaths.has(p.path);
     const isCurrent = p.path === currentProjectPath;
     const agents = p.agents
@@ -58,10 +67,6 @@ export function ProjectListScreen({
     };
   });
 
-  const initialCursor = currentProjectPath
-    ? Math.max(0, projects.findIndex((p) => p.path === currentProjectPath))
-    : 0;
-
   if (projects.length === 0) {
     return (
       <Box flexDirection="column">
@@ -79,7 +84,6 @@ export function ProjectListScreen({
         <ScrollableList
           items={items}
           onSelect={onSelect}
-          initialCursor={initialCursor}
           onKey={(input) => {
             if (input === "q" || input === "Q") {
               onQuit();
