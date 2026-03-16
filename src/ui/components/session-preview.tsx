@@ -27,12 +27,41 @@ function stripIdeTags(text: string): string {
 }
 
 /**
+ * Find a Claude Code session file by scanning project directories.
+ * Tries the primary encoded path first, then falls back to scanning all
+ * project directories (handles worktree sessions stored under different paths).
+ */
+async function findClaudeSessionFile(sessionId: string, projectPath: string): Promise<string | null> {
+  // Try primary path first
+  const encoded = encodeProjectPath(projectPath);
+  const primaryPath = path.join(CLAUDE_PROJECTS_DIR, encoded, `${sessionId}.jsonl`);
+  try {
+    await fs.access(primaryPath);
+    return primaryPath;
+  } catch {}
+
+  // Scan all project directories — session UUIDs are globally unique
+  try {
+    const dirs = await fs.readdir(CLAUDE_PROJECTS_DIR, { withFileTypes: true });
+    for (const dir of dirs) {
+      if (!dir.isDirectory()) continue;
+      const candidate = path.join(CLAUDE_PROJECTS_DIR, dir.name, `${sessionId}.jsonl`);
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {}
+    }
+  } catch {}
+
+  return null;
+}
+
+/**
  * Read Claude Code JSONL session file and extract messages.
  */
 async function readClaudeSession(sessionId: string, projectPath: string): Promise<Message[]> {
-  const encoded = encodeProjectPath(projectPath);
-  const sessionDir = path.join(CLAUDE_PROJECTS_DIR, encoded);
-  const jsonlPath = path.join(sessionDir, `${sessionId}.jsonl`);
+  const jsonlPath = await findClaudeSessionFile(sessionId, projectPath);
+  if (!jsonlPath) return [];
 
   const messages: Message[] = [];
   try {
