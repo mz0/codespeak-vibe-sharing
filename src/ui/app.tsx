@@ -13,7 +13,7 @@ import { LoadingScreen } from "./screens/loading.js";
 
 export type Screen =
   | { kind: "loading" }
-  | { kind: "project-list" }
+  | { kind: "project-list"; currentProjectPath?: string }
   | { kind: "share-project"; projectPath: string }
   | { kind: "consent"; projectPath: string }
   | { kind: "review"; projectPath: string; activeTab: string }
@@ -157,6 +157,7 @@ export function App({ initialScreen, projects: initialProjects, onDiscoverProjec
         <ProjectListScreen
           projects={projects}
           sharedPaths={sharedPaths}
+          currentProjectPath={screen.currentProjectPath}
           onSelect={(path) => dispatch({ type: "SELECT_PROJECT", projectPath: path })}
           onQuit={exit}
         />

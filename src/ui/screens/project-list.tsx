@@ -10,6 +10,7 @@ import { getFirstName } from "../../utils/user-info.js";
 interface ProjectListScreenProps {
   projects: DiscoveredProject[];
   sharedPaths: Set<string>;
+  currentProjectPath?: string;
   onSelect: (path: string) => void;
   onQuit: () => void;
 }
@@ -24,6 +25,7 @@ function shortenPath(p: string): string {
 export function ProjectListScreen({
   projects,
   sharedPaths,
+  currentProjectPath,
   onSelect,
   onQuit,
 }: ProjectListScreenProps) {
@@ -35,6 +37,7 @@ export function ProjectListScreen({
 
   const items: ListItem<string>[] = projects.map((p) => {
     const isShared = sharedPaths.has(p.path);
+    const isCurrent = p.path === currentProjectPath;
     const agents = p.agents
       .map((a) => {
         const agentSlug = a.toLowerCase().replace(/\s+/g, "-");
@@ -46,13 +49,18 @@ export function ProjectListScreen({
       })
       .join("  ");
 
+    const tag = isCurrent ? "(current dir)  " : "";
     return {
       label: shortenPath(p.path),
       value: p.path,
       dimmed: isShared,
-      suffix: isShared ? "[Shared]" : agents,
+      suffix: isShared ? "[Shared]" : tag + agents,
     };
   });
+
+  const initialCursor = currentProjectPath
+    ? Math.max(0, projects.findIndex((p) => p.path === currentProjectPath))
+    : 0;
 
   if (projects.length === 0) {
     return (
@@ -71,6 +79,7 @@ export function ProjectListScreen({
         <ScrollableList
           items={items}
           onSelect={onSelect}
+          initialCursor={initialCursor}
           onKey={(input) => {
             if (input === "q" || input === "Q") {
               onQuit();

@@ -3,11 +3,6 @@ import type { Screen } from "./ui/app.js";
 import { normalizePath } from "./utils/paths.js";
 import { getGitRoot, getGitWorktrees } from "./utils/paths.js";
 
-export interface RouteResult {
-  screen: Screen;
-  projects: DiscoveredProject[];
-}
-
 /**
  * Find the best matching project for a directory.
  * Returns the project with the longest matching path prefix (most specific).
@@ -39,48 +34,38 @@ function findBestProjectMatch(
 
 /**
  * Determine the initial route based on cwd and discovered projects.
- *
- * Step 2.A: cwd is inside a discovered project → share-project screen
- * Step 2.B: cwd is a git repo but no sessions found → manual-entry screen
- * Step 2.C: otherwise → project-list screen
+ * Always opens the project list, but pre-selects the current project if found.
  */
 export async function determineRoute(
   cwd: string,
   projects: DiscoveredProject[],
 ): Promise<Screen> {
-  // Step 2.A: Direct match
+  // Try to find the current project by matching cwd
   const directMatch = findBestProjectMatch(cwd, projects);
   if (directMatch) {
-    return { kind: "share-project", projectPath: directMatch.path };
+    return { kind: "project-list", currentProjectPath: directMatch.path };
   }
 
-  // Check if cwd is a git repo
+  // Check if cwd is a git repo and try matching via git root / worktrees
   const gitRoot = await getGitRoot(cwd);
-
   if (gitRoot) {
-    // Try matching on git root
     const gitRootMatch = findBestProjectMatch(gitRoot, projects);
     if (gitRootMatch) {
-      return { kind: "share-project", projectPath: gitRootMatch.path };
+      return { kind: "project-list", currentProjectPath: gitRootMatch.path };
     }
 
-    // Try matching via worktrees — include all worktrees from the same repo
     try {
       const worktrees = await getGitWorktrees(gitRoot);
       for (const wt of worktrees) {
         const wtMatch = findBestProjectMatch(wt.path, projects);
         if (wtMatch) {
-          return { kind: "share-project", projectPath: wtMatch.path };
+          return { kind: "project-list", currentProjectPath: wtMatch.path };
         }
       }
     } catch {
       // Ignore worktree errors
     }
-
-    // Step 2.B: Git repo but no sessions found
-    return { kind: "manual-entry", gitRoot };
   }
 
-  // Step 2.C: Not in any project, not a git repo
   return { kind: "project-list" };
 }

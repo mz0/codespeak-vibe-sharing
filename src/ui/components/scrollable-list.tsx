@@ -20,6 +20,8 @@ interface ScrollableListProps<T> {
   indicator?: string;
   /** Called when cursor is at edge and user presses beyond it. */
   onBoundary?: (direction: "up" | "down") => void;
+  /** Initial cursor position. */
+  initialCursor?: number;
 }
 
 export function ScrollableList<T>({
@@ -31,11 +33,12 @@ export function ScrollableList<T>({
   active = true,
   indicator = ">",
   onBoundary,
+  initialCursor = 0,
 }: ScrollableListProps<T>) {
   const { stdout } = useStdout();
   const terminalPageSize = Math.max(5, (stdout.rows ?? 24) - 8);
   const pageSize = pageSizeProp ?? terminalPageSize;
-  const [cursor, setCursor] = useState(0);
+  const [cursor, setCursor] = useState(initialCursor);
 
   const moveCursor = useCallback(
     (delta: number) => {
