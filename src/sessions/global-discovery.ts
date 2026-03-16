@@ -4,7 +4,7 @@ import { GeminiProvider } from "./agents/gemini.js";
 import { ClineProvider } from "./agents/cline.js";
 import { CursorProvider } from "./agents/cursor.js";
 import type { AgentProvider, DiscoveredProject } from "./types.js";
-import { normalizePath } from "../utils/paths.js";
+import { normalizePath, getGitWorktrees } from "../utils/paths.js";
 
 export interface GlobalDiscoveryResult {
   projects: DiscoveredProject[];
@@ -78,8 +78,49 @@ export async function discoverAllProjects(): Promise<GlobalDiscoveryResult> {
     }
   }
 
+  // Merge worktrees of the same repository into a single entry
+  const processed = new Set<string>();
+  const mergedMap = new Map<
+    string,
+    { path: string; agents: string[]; sessionCounts: Record<string, number> }
+  >();
+
+  for (const [normalized, project] of projectMap) {
+    if (processed.has(normalized)) continue;
+    processed.add(normalized);
+
+    const merged = { ...project, agents: [...project.agents], sessionCounts: { ...project.sessionCounts } };
+
+    try {
+      const worktrees = await getGitWorktrees(project.path);
+      // Use main worktree path (first entry) as canonical path
+      if (worktrees.length > 0 && worktrees[0]!.path !== project.path) {
+        merged.path = worktrees[0]!.path;
+      }
+
+      for (const wt of worktrees) {
+        const wtNorm = normalizePath(wt.path);
+        if (wtNorm === normalized) continue;
+        const other = projectMap.get(wtNorm);
+        if (other) {
+          for (const agent of other.agents) {
+            if (!merged.agents.includes(agent)) merged.agents.push(agent);
+          }
+          for (const [slug, count] of Object.entries(other.sessionCounts)) {
+            merged.sessionCounts[slug] = (merged.sessionCounts[slug] ?? 0) + count;
+          }
+          processed.add(wtNorm);
+        }
+      }
+    } catch {
+      // Not a git repo — keep as-is
+    }
+
+    mergedMap.set(normalizePath(merged.path), merged);
+  }
+
   // Sort by total session count (descending) so most active projects appear first
-  const projects = [...projectMap.values()]
+  const projects = [...mergedMap.values()]
     .sort((a, b) => {
       const totalA = Object.values(a.sessionCounts).reduce((sum, n) => sum + n, 0);
       const totalB = Object.values(b.sessionCounts).reduce((sum, n) => sum + n, 0);
