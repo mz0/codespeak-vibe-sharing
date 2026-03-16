@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { Box, Text, useInput } from "ink";
 import type { DiscoveredProject } from "../../sessions/types.js";
 import { TabBar } from "../components/tab-bar.js";
@@ -44,6 +44,14 @@ export function ReviewScreen({
     { id: "git", label: "git" },
   ];
 
+  const handleContentBoundary = useCallback((direction: "up" | "down") => {
+    if (direction === "up") {
+      setFocusZone("tabs");
+    } else {
+      setFocusZone("actions");
+    }
+  }, []);
+
   useInput((input, key) => {
     if (hasActivePreview) return;
     if (key.tab) {
@@ -52,8 +60,8 @@ export function ReviewScreen({
       setFocusZone(zones[(idx + 1) % zones.length]!);
     } else if (key.downArrow && focusZone === "tabs") {
       setFocusZone("content");
-    } else if (key.upArrow && focusZone === "content") {
-      setFocusZone("tabs");
+    } else if (key.upArrow && focusZone === "actions") {
+      setFocusZone("content");
     } else if (key.escape) {
       onBack();
     }
@@ -73,6 +81,7 @@ export function ReviewScreen({
             agentSlug={activeTab.replace("agent:", "")}
             active={focusZone === "content" || hasActivePreview}
             onPreviewChange={setHasActivePreview}
+            onBoundary={handleContentBoundary}
           />
         )}
         {activeTab === "code" && (
@@ -80,9 +89,10 @@ export function ReviewScreen({
             projectPath={projectPath}
             active={focusZone === "content" || hasActivePreview}
             onPreviewChange={setHasActivePreview}
+            onBoundary={handleContentBoundary}
           />
         )}
-        {activeTab === "git" && <GitTab projectPath={projectPath} active={focusZone === "content"} />}
+        {activeTab === "git" && <GitTab projectPath={projectPath} active={focusZone === "content"} onBoundary={handleContentBoundary} />}
       </Box>
 
       <ActionBar

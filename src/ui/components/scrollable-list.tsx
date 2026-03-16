@@ -18,6 +18,8 @@ interface ScrollableListProps<T> {
   onKey?: (input: string, key: { return: boolean; escape: boolean }) => boolean;
   active?: boolean;
   indicator?: string;
+  /** Called when cursor is at edge and user presses beyond it. */
+  onBoundary?: (direction: "up" | "down") => void;
 }
 
 export function ScrollableList<T>({
@@ -28,6 +30,7 @@ export function ScrollableList<T>({
   onKey,
   active = true,
   indicator = ">",
+  onBoundary,
 }: ScrollableListProps<T>) {
   const { stdout } = useStdout();
   const terminalPageSize = Math.max(5, (stdout.rows ?? 24) - 8);
@@ -50,6 +53,18 @@ export function ScrollableList<T>({
     [items, onHighlight],
   );
 
+  const isAtBoundary = useCallback(
+    (direction: "up" | "down"): boolean => {
+      const delta = direction === "up" ? -1 : 1;
+      let next = cursor + delta;
+      while (next >= 0 && next < items.length && items[next]!.dimmed) {
+        next += delta;
+      }
+      return next < 0 || next >= items.length;
+    },
+    [cursor, items],
+  );
+
   useInput(
     (input, key) => {
       if (!active) return;
@@ -58,9 +73,17 @@ export function ScrollableList<T>({
       if (onKey?.(input, { return: key.return, escape: key.escape })) return;
 
       if (key.upArrow) {
-        moveCursor(-1);
+        if (isAtBoundary("up")) {
+          onBoundary?.("up");
+        } else {
+          moveCursor(-1);
+        }
       } else if (key.downArrow) {
-        moveCursor(1);
+        if (isAtBoundary("down")) {
+          onBoundary?.("down");
+        } else {
+          moveCursor(1);
+        }
       } else if (key.return && onSelect && items[cursor]) {
         onSelect(items[cursor]!.value);
       }

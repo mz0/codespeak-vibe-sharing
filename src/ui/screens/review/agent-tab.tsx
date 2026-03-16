@@ -11,9 +11,10 @@ interface AgentTabProps {
   agentSlug: string;
   active?: boolean;
   onPreviewChange?: (active: boolean) => void;
+  onBoundary?: (direction: "up" | "down") => void;
 }
 
-export function AgentTab({ projectPath, agentSlug, active = true, onPreviewChange }: AgentTabProps) {
+export function AgentTab({ projectPath, agentSlug, active = true, onPreviewChange, onBoundary }: AgentTabProps) {
   const [sessions, setSessions] = useState<DiscoveredSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
@@ -103,7 +104,7 @@ export function AgentTab({ projectPath, agentSlug, active = true, onPreviewChang
       <Text bold>
         Sessions ({sessions.length}):
       </Text>
-      <ScrollableList items={items} onSelect={openPreview} active={active && !previewSessionId} />
+      <ScrollableList items={items} onSelect={openPreview} active={active && !previewSessionId} onBoundary={onBoundary} />
     </Box>
   );
 }

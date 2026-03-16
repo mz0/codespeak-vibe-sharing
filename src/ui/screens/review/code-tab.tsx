@@ -8,6 +8,7 @@ interface CodeTabProps {
   projectPath: string;
   active?: boolean;
   onPreviewChange?: (active: boolean) => void;
+  onBoundary?: (direction: "up" | "down") => void;
 }
 
 interface FlatNode {
@@ -26,7 +27,7 @@ function flattenTree(nodes: FileTreeNode[], depth: number = 0): FlatNode[] {
   return result;
 }
 
-export function CodeTab({ projectPath, active = true, onPreviewChange }: CodeTabProps) {
+export function CodeTab({ projectPath, active = true, onPreviewChange, onBoundary }: CodeTabProps) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState(0);
@@ -71,9 +72,17 @@ export function CodeTab({ projectPath, active = true, onPreviewChange }: CodeTab
     if (!active) return;
 
     if (key.upArrow) {
-      setCursor((c) => Math.max(0, c - 1));
+      if (cursor === 0) {
+        onBoundary?.("up");
+      } else {
+        setCursor((c) => Math.max(0, c - 1));
+      }
     } else if (key.downArrow) {
-      setCursor((c) => Math.min(flat.length - 1, c + 1));
+      if (cursor >= flat.length - 1) {
+        onBoundary?.("down");
+      } else {
+        setCursor((c) => Math.min(flat.length - 1, c + 1));
+      }
     } else if (key.return) {
       const item = flat[cursor];
       if (!item) return;
@@ -112,7 +121,8 @@ export function CodeTab({ projectPath, active = true, onPreviewChange }: CodeTab
       {start > 0 && <Text dimColor>  ↑ {start} more</Text>}
       {visible.map((item, i) => {
         const realIndex = start + i;
-        const isActive = realIndex === cursor;
+        const isCurrent = realIndex === cursor;
+        const showHighlight = isCurrent && active;
         const indent = "  ".repeat(item.depth);
         const icon = item.node.isDirectory
           ? item.node.expanded
@@ -124,10 +134,11 @@ export function CodeTab({ projectPath, active = true, onPreviewChange }: CodeTab
         return (
           <Text
             key={item.node.path}
-            color={isActive ? "cyan" : undefined}
-            dimColor={!item.node.shared}
+            color={showHighlight ? "cyan" : undefined}
+            bold={showHighlight}
+            dimColor={!item.node.shared || (!active && !isCurrent)}
           >
-            {isActive ? " > " : "   "}
+            {showHighlight ? " > " : "   "}
             {indent}
             {icon}
             {item.node.name}
