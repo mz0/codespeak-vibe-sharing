@@ -36,15 +36,7 @@ export function ProjectListScreen({
     getFirstName().then(setFirstName).catch(() => setFirstName(null));
   }, []);
 
-  // Sort: unshared first, shared at bottom
-  const sorted = [...projects].sort((a, b) => {
-    const aShared = sharedPaths.has(a.path) ? 1 : 0;
-    const bShared = sharedPaths.has(b.path) ? 1 : 0;
-    if (aShared !== bShared) return aShared - bShared;
-    return a.path.localeCompare(b.path);
-  });
-
-  const items: ListItem<string>[] = sorted.map((p) => {
+  const items: ListItem<string>[] = projects.map((p) => {
     const isShared = sharedPaths.has(p.path);
     const agents = p.agents
       .map((a) => {
