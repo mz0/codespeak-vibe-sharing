@@ -69,7 +69,9 @@ export function ReviewScreen({
 
   return (
     <Box flexDirection="column">
-      <Box marginBottom={1} />
+      <Box marginBottom={1}>
+        <Text bold>{projectPath}</Text>
+      </Box>
 
       <TabBar tabs={tabs} activeTab={activeTab} onSwitch={onSwitchTab} active={focusZone === "tabs" && !hasActivePreview} />
       <Text dimColor>{"─".repeat(50)}</Text>

@@ -71,7 +71,9 @@ export class ClaudeCodeProvider implements AgentProvider {
     const projects = new Map<string, number>();
 
     try {
-      // Strategy 1: Scan project directories
+      // Scan all project directories and count sessions per actual project path.
+      // A single encoded directory can contain sessions from multiple projects
+      // because the encoding is lossy (path separators and hyphens both become "-").
       let dirs: string[];
       try {
         const entries = await fs.readdir(CLAUDE_PROJECTS_DIR, { withFileTypes: true });
@@ -80,22 +82,20 @@ export class ClaudeCodeProvider implements AgentProvider {
         dirs = [];
       }
 
+      // Track which encoded dirs we've already counted
+      const countedDirs = new Set<string>();
+
+      // Strategy 1: Scan encoded directories where decodeProjectPath gives a valid path
       for (const dirName of dirs) {
         const decoded = decodeProjectPath(dirName);
         if (!(await directoryExists(decoded))) continue;
 
         const dirPath = path.join(CLAUDE_PROJECTS_DIR, dirName);
-        let jsonlCount = 0;
-        try {
-          const files = await fs.readdir(dirPath);
-          jsonlCount = files.filter((f) => f.endsWith(".jsonl")).length;
-        } catch {
-          continue;
+        const counts = await this.countSessionsByProject(dirPath);
+        for (const [projectPath, count] of counts) {
+          projects.set(projectPath, (projects.get(projectPath) ?? 0) + count);
         }
-
-        if (jsonlCount > 0) {
-          projects.set(decoded, jsonlCount);
-        }
+        if (counts.size > 0) countedDirs.add(dirName);
       }
 
       // Strategy 2: Supplement from history.jsonl
@@ -105,19 +105,21 @@ export class ClaudeCodeProvider implements AgentProvider {
       if (await fileExists(CLAUDE_HISTORY_FILE)) {
         try {
           for await (const entry of readJsonl<HistoryEntry>(CLAUDE_HISTORY_FILE)) {
-            if (entry.project && !projects.has(entry.project)) {
-              const encoded = encodeProjectPath(entry.project);
-              const dirPath = path.join(CLAUDE_PROJECTS_DIR, encoded);
-              try {
-                const files = await fs.readdir(dirPath);
-                const jsonlCount = files.filter((f) => f.endsWith(".jsonl")).length;
-                if (jsonlCount > 0) {
-                  projects.set(entry.project, jsonlCount);
-                }
-              } catch {
-                projects.set(entry.project, 1);
-              }
+            if (!entry.project || projects.has(entry.project)) continue;
+            const encoded = encodeProjectPath(entry.project);
+            if (countedDirs.has(encoded)) continue;
+
+            const dirPath = path.join(CLAUDE_PROJECTS_DIR, encoded);
+            if (!(await directoryExists(dirPath))) {
+              projects.set(entry.project, 1);
+              continue;
             }
+
+            const counts = await this.countSessionsByProject(dirPath);
+            for (const [projectPath, count] of counts) {
+              projects.set(projectPath, (projects.get(projectPath) ?? 0) + count);
+            }
+            countedDirs.add(encoded);
           }
         } catch {
           // Skip unreadable history
@@ -127,8 +129,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       // Strategy 3: For remaining encoded dirs with sessions but unknown paths,
       // recover the real path from cwd inside JSONL files.
       for (const dirName of dirs) {
-        const decoded = decodeProjectPath(dirName);
-        if (projects.has(decoded)) continue;
+        if (countedDirs.has(dirName)) continue;
         // Check if any discovered project already maps to this encoded dir
         let alreadyFound = false;
         for (const knownPath of projects.keys()) {
@@ -140,29 +141,69 @@ export class ClaudeCodeProvider implements AgentProvider {
         if (alreadyFound) continue;
 
         const dirPath = path.join(CLAUDE_PROJECTS_DIR, dirName);
-        let jsonlFiles: string[];
-        try {
-          const files = await fs.readdir(dirPath);
-          jsonlFiles = files.filter((f) => f.endsWith(".jsonl"));
-        } catch { continue; }
-        if (jsonlFiles.length === 0) continue;
-
-        // Read first JSONL file to extract cwd
-        const samplePath = path.join(dirPath, jsonlFiles[0]!);
-        try {
-          for await (const msg of readJsonl<ClaudeMessage>(samplePath)) {
-            if (msg.cwd && await directoryExists(msg.cwd)) {
-              projects.set(msg.cwd, jsonlFiles.length);
-              break;
-            }
-          }
-        } catch { /* skip */ }
+        const counts = await this.countSessionsByProject(dirPath);
+        for (const [projectPath, count] of counts) {
+          projects.set(projectPath, (projects.get(projectPath) ?? 0) + count);
+        }
       }
     } catch {
       // Never throw
     }
 
     return projects;
+  }
+
+  /**
+   * Count sessions per project path within an encoded session directory.
+   * Uses sessions-index.json for indexed entries, then reads cwd from
+   * remaining JSONL files not covered by the index.
+   */
+  private async countSessionsByProject(
+    dirPath: string,
+  ): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    const indexedIds = new Set<string>();
+
+    // Count indexed entries by projectPath
+    const indexPath = path.join(dirPath, "sessions-index.json");
+    const index = await safeReadJson<SessionIndex>(indexPath);
+
+    if (index?.entries) {
+      for (const entry of index.entries) {
+        indexedIds.add(entry.sessionId);
+        if (entry.projectPath) {
+          counts.set(entry.projectPath, (counts.get(entry.projectPath) ?? 0) + 1);
+        }
+      }
+    }
+
+    // Count remaining JSONL files not in the index
+    let entries;
+    try {
+      entries = await fs.readdir(dirPath, { withFileTypes: true });
+    } catch {
+      return counts;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+      const sessionId = entry.name.replace(".jsonl", "");
+      if (indexedIds.has(sessionId)) continue;
+
+      const jsonlPath = path.join(dirPath, entry.name);
+      try {
+        for await (const msg of readJsonl<ClaudeMessage>(jsonlPath)) {
+          if (msg.cwd) {
+            counts.set(msg.cwd, (counts.get(msg.cwd) ?? 0) + 1);
+            break;
+          }
+        }
+      } catch {
+        // Skip unreadable files
+      }
+    }
+
+    return counts;
   }
 
   async findSessions(context: ProjectContext): Promise<DiscoveredSession[]> {
@@ -214,40 +255,45 @@ export class ClaudeCodeProvider implements AgentProvider {
     const indexPath = path.join(sessionDir, "sessions-index.json");
     const index = await safeReadJson<SessionIndex>(indexPath);
 
+    // Collect sessions from the index (fast) and supplement with JSONL scan
+    // for files not covered by the index (which is often incomplete).
+    const sessions: DiscoveredSession[] = [];
+    const indexedIds = new Set<string>();
+
     if (index?.entries) {
-      // Verify at least one entry matches our project path
       const matching = index.entries.filter(
         (e) => !e.projectPath || e.projectPath === projectPath,
       );
 
-      if (matching.length > 0) {
-        const sessions: DiscoveredSession[] = [];
-        for (const entry of matching) {
-          const jsonlPath = path.join(sessionDir, `${entry.sessionId}.jsonl`);
-          const sizeBytes = await getFileSize(jsonlPath);
+      for (const entry of matching) {
+        indexedIds.add(entry.sessionId);
+        const jsonlPath = path.join(sessionDir, `${entry.sessionId}.jsonl`);
+        const sizeBytes = await getFileSize(jsonlPath);
 
-          sessions.push({
-            agentName: this.name,
-            sessionId: entry.sessionId,
-            summary: entry.summary ?? null,
-            firstPrompt: entry.firstPrompt ? stripIdeTags(entry.firstPrompt) || null : null,
-            messageCount: entry.messageCount ?? null,
-            created: entry.created ?? null,
-            modified: entry.modified ?? null,
-            sizeBytes,
-          });
-        }
-        return sessions;
+        sessions.push({
+          agentName: this.name,
+          sessionId: entry.sessionId,
+          summary: entry.summary ?? null,
+          firstPrompt: entry.firstPrompt ? stripIdeTags(entry.firstPrompt) || null : null,
+          messageCount: entry.messageCount ?? null,
+          created: entry.created ?? null,
+          modified: entry.modified ?? null,
+          sizeBytes,
+        });
       }
     }
 
-    // No index or no match — scan JSONL files directly
-    return this.scanJsonlFiles(sessionDir, projectPath);
+    // Scan JSONL files not covered by the index
+    const extra = await this.scanJsonlFiles(sessionDir, projectPath, indexedIds);
+    sessions.push(...extra);
+
+    return sessions;
   }
 
   private async scanJsonlFiles(
     sessionDir: string,
     projectPath: string,
+    skipIds?: Set<string>,
   ): Promise<DiscoveredSession[]> {
     let entries;
     try {
@@ -261,8 +307,10 @@ export class ClaudeCodeProvider implements AgentProvider {
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
 
-      const jsonlPath = path.join(sessionDir, entry.name);
       const sessionId = entry.name.replace(".jsonl", "");
+      if (skipIds?.has(sessionId)) continue;
+
+      const jsonlPath = path.join(sessionDir, entry.name);
 
       // Verify this session belongs to our project by checking cwd
       let belongsToProject = false;
