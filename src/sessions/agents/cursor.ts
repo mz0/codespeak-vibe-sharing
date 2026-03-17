@@ -327,6 +327,10 @@ export class CursorProvider implements AgentProvider {
     // Find workspace storage directory (for plan registry + state extraction)
     await this.findWorkspaceStorageDir(context.projectPath);
 
+    // Strategy C: Discover Composer sessions from workspace state.vscdb
+    const composerSessions = await this.findComposerSessions(seenIds);
+    sessions.push(...composerSessions);
+
     return sessions;
   }
 
@@ -740,6 +744,63 @@ export class CursorProvider implements AgentProvider {
         this.workspaceJsonPath = wsJsonPath;
         return;
       }
+    }
+  }
+
+  /**
+   * Discover Composer sessions from workspace state.vscdb.
+   * These are separate from chat sessions in ~/.cursor/chats/.
+   */
+  private async findComposerSessions(
+    seenIds: Set<string>,
+  ): Promise<DiscoveredSession[]> {
+    if (!this.workspaceStorageDir || !this.sqliteAvailable) return [];
+
+    const wsStateDb = path.join(this.workspaceStorageDir, "state.vscdb");
+    if (!(await fileExists(wsStateDb))) return [];
+
+    try {
+      const raw = await sqliteQuery(
+        wsStateDb,
+        "SELECT value FROM ItemTable WHERE key='composer.composerData';",
+      );
+      const trimmed = raw.trim();
+      if (!trimmed) return [];
+
+      const data = JSON.parse(trimmed) as {
+        allComposers?: Array<{
+          composerId?: string;
+          name?: string;
+          createdAt?: number;
+          lastUpdatedAt?: number;
+          subtitle?: string;
+        }>;
+      };
+
+      const sessions: DiscoveredSession[] = [];
+      for (const composer of data.allComposers ?? []) {
+        if (!composer.composerId || seenIds.has(composer.composerId)) continue;
+        seenIds.add(composer.composerId);
+
+        sessions.push({
+          agentName: this.name,
+          sessionId: composer.composerId,
+          summary: composer.name && composer.name !== "New Composer" ? composer.name : null,
+          firstPrompt: composer.subtitle ?? null,
+          messageCount: null,
+          created: composer.createdAt
+            ? new Date(composer.createdAt).toISOString()
+            : null,
+          modified: composer.lastUpdatedAt
+            ? new Date(composer.lastUpdatedAt).toISOString()
+            : null,
+          sizeBytes: 0,
+        });
+      }
+
+      return sessions;
+    } catch {
+      return [];
     }
   }
 
