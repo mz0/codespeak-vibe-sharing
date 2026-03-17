@@ -193,7 +193,8 @@ export class ClaudeCodeProvider implements AgentProvider {
       const jsonlPath = path.join(dirPath, entry.name);
       try {
         for await (const msg of readJsonl<ClaudeMessage>(jsonlPath)) {
-          if (msg.cwd) {
+          // Only use cwd from user messages, matching scanJsonlFiles logic
+          if (msg.type === "user" && msg.cwd) {
             counts.set(msg.cwd, (counts.get(msg.cwd) ?? 0) + 1);
             break;
           }
