@@ -14,6 +14,7 @@ import {
   getFileSize,
   safeReadJson,
 } from "../../utils/fs-helpers.js";
+import { filterSecretLines } from "../../utils/secret-filter.js";
 import type { AgentProvider, DiscoveredSession, ProjectContext } from "../types.js";
 
 interface GeminiProjectsJson {
@@ -41,6 +42,7 @@ export class GeminiProvider implements AgentProvider {
 
   private discoveredSlugs = new Set<string>();
   private hasOldFormatSessions = false;
+  private _tempFiles: string[] = [];
 
   async detect(): Promise<boolean> {
     return directoryExists(GEMINI_DIR);
@@ -103,14 +105,16 @@ export class GeminiProvider implements AgentProvider {
 
     // New-format files for each discovered slug
     for (const slug of this.discoveredSlugs) {
-      // Chat session files
+      // Chat session files — filter secrets from JSON content
       const chatsDir = path.join(GEMINI_TMP_DIR, slug, "chats");
       if (await directoryExists(chatsDir)) {
         try {
           const entries = await fs.readdir(chatsDir, { withFileTypes: true });
           for (const entry of entries) {
             if (entry.isFile() && entry.name.startsWith("session-") && entry.name.endsWith(".json")) {
-              files.push(path.join(chatsDir, entry.name));
+              const filePath = path.join(chatsDir, entry.name);
+              const filtered = await filterSecretLines(filePath, "gemini-filtered", this._tempFiles);
+              if (filtered) files.push(filtered);
             }
           }
         } catch {

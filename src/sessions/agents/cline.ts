@@ -6,6 +6,7 @@ import {
   getFileSize,
   walkDirectoryAbsolute,
 } from "../../utils/fs-helpers.js";
+import { filterSecretLines, FILTERABLE_EXTENSIONS } from "../../utils/secret-filter.js";
 import { getGitRoot, getGitRemoteUrl, normalizeRemoteUrl } from "../../utils/paths.js";
 import type { AgentProvider, DiscoveredSession, ProjectContext } from "../types.js";
 
@@ -27,6 +28,8 @@ export class ClineProvider implements AgentProvider {
 
   /** Matched history entries for virtual files */
   private matchedHistoryEntries: ClineTaskHistoryEntry[] = [];
+
+  private _tempFiles: string[] = [];
 
   /** Cache: cwd → normalized remote URL (or null) to avoid redundant git calls */
   private cwdRemoteCache = new Map<string, string | null>();
@@ -118,7 +121,15 @@ export class ClineProvider implements AgentProvider {
       const taskDir = path.join(CLINE_TASKS_DIR, taskId);
       if (await directoryExists(taskDir)) {
         const files = await walkDirectoryAbsolute(taskDir);
-        allFiles.push(...files);
+        for (const file of files) {
+          const ext = path.extname(file).toLowerCase();
+          if (FILTERABLE_EXTENSIONS.has(ext)) {
+            const result = await filterSecretLines(file, "cline-filtered", this._tempFiles);
+            if (result) allFiles.push(result);
+          } else {
+            allFiles.push(file);
+          }
+        }
       }
     }
     return allFiles;

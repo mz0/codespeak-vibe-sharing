@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { CODEX_SESSIONS_DIR, CODEX_DIR } from "../../config.js";
 import {
@@ -10,6 +9,7 @@ import {
   getFileSize,
   readLines,
 } from "../../utils/fs-helpers.js";
+import { SECRET_PATTERNS, filterSecretLines } from "../../utils/secret-filter.js";
 import type { AgentProvider, DiscoveredSession, ProjectContext } from "../types.js";
 
 interface CodexSessionMeta {
@@ -30,10 +30,6 @@ interface CodexJsonlEntry {
   type?: string;
   payload?: Record<string, unknown>;
 }
-
-// Secret patterns to filter from shell snapshots
-const SECRET_PATTERNS =
-  /API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH|_KEY=|_SECRET=/i;
 
 // Map from sessionId → absolute file path
 const sessionFileMap = new Map<string, string>();
@@ -354,32 +350,13 @@ export class CodexProvider implements AgentProvider {
 
   /**
    * Read a shell snapshot, strip lines containing secret patterns,
-   * and write the filtered content to a temp file that mirrors the
-   * original path under CODEX_DIR so the archiver preserves the path.
+   * and write the filtered content to a temp file.
+   * The archiver falls back to sessions/codex/{filename} for the archive path.
    */
   private async filterShellSnapshot(
     snapshotPath: string,
   ): Promise<string | null> {
-    try {
-      const content = await fs.readFile(snapshotPath, "utf-8");
-      const filtered = content
-        .split("\n")
-        .filter((line) => !SECRET_PATTERNS.test(line))
-        .join("\n");
-
-      // Write filtered content to a temp file. The archiver falls back
-      // to sessions/codex/{sessionId}/{filename} for the archive path.
-      const tmpDir = await fs.mkdtemp(
-        path.join(os.tmpdir(), "codex-filtered-"),
-      );
-      const tmpFile = path.join(tmpDir, path.basename(snapshotPath));
-      await fs.writeFile(tmpFile, filtered, "utf-8");
-      this._tempFiles.push(tmpFile);
-
-      return tmpFile;
-    } catch {
-      return null;
-    }
+    return filterSecretLines(snapshotPath, "codex-filtered", this._tempFiles);
   }
 
   private cwdMatches(cwd: string, projectPath: string): boolean {

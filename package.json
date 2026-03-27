@@ -1,6 +1,6 @@
 {
   "name": "codespeak-vibe-share",
-  "version": "0.3.0",
+  "version": "0.3.5",
   "description": "Share your vibe-coded project and AI coding sessions",
   "type": "module",
   "author": "Andrey Breslav <andrey.breslav@codespeak.dev>",

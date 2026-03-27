@@ -24,6 +24,7 @@ import {
   sqliteCreateFiltered,
   getSqliteInstallInstructions,
 } from "../../utils/sqlite.js";
+import { filterSecretLines, FILTERABLE_EXTENSIONS } from "../../utils/secret-filter.js";
 import type {
   AgentProvider,
   DiscoveredSession,
@@ -78,6 +79,8 @@ export class CursorProvider implements AgentProvider {
   private workspaceComposerIds: Set<string> | null = null;
   /** Temp file path for filtered state.vscdb */
   private stateExtractPath: string | null = null;
+  /** Temp files created for secret-filtered text content */
+  private _tempFiles: string[] = [];
   /** Discovered plans with metadata for the manifest */
   private discoveredPlans: DiscoveredPlan[] = [];
   /** The project path used for discovery */
@@ -349,7 +352,7 @@ export class CursorProvider implements AgentProvider {
       files.push(dbPath);
     }
 
-    // 2. Project-level files (transcripts, terminals)
+    // 2. Project-level files (transcripts, terminals) — filter secrets from text files
     for (const slug of this.projectSlugs) {
       const projectDir = path.join(CURSOR_PROJECTS_DIR, slug);
       if (!(await directoryExists(projectDir))) continue;
@@ -358,14 +361,30 @@ export class CursorProvider implements AgentProvider {
       const transcriptsDir = path.join(projectDir, "agent-transcripts");
       if (await directoryExists(transcriptsDir)) {
         const transcriptFiles = await walkDirectoryAbsolute(transcriptsDir);
-        files.push(...transcriptFiles);
+        for (const file of transcriptFiles) {
+          const ext = path.extname(file).toLowerCase();
+          if (FILTERABLE_EXTENSIONS.has(ext)) {
+            const result = await filterSecretLines(file, "cursor-filtered", this._tempFiles);
+            if (result) files.push(result);
+          } else {
+            files.push(file);
+          }
+        }
       }
 
       // Terminal logs
       const terminalsDir = path.join(projectDir, "terminals");
       if (await directoryExists(terminalsDir)) {
         const terminalFiles = await walkDirectoryAbsolute(terminalsDir);
-        files.push(...terminalFiles);
+        for (const file of terminalFiles) {
+          const ext = path.extname(file).toLowerCase();
+          if (FILTERABLE_EXTENSIONS.has(ext)) {
+            const result = await filterSecretLines(file, "cursor-filtered", this._tempFiles);
+            if (result) files.push(result);
+          } else {
+            files.push(file);
+          }
+        }
       }
     }
 

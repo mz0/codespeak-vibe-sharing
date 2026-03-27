@@ -16,6 +16,7 @@ import {
   getFileSize,
   walkDirectoryAbsolute,
 } from "../../utils/fs-helpers.js";
+import { filterSecretLines, FILTERABLE_EXTENSIONS } from "../../utils/secret-filter.js";
 import type { AgentProvider, DiscoveredSession, ProjectContext } from "../types.js";
 
 interface SessionIndexEntry {
@@ -54,6 +55,7 @@ export class ClaudeCodeProvider implements AgentProvider {
 
   private _sessionDirs: string[] = [];
   private _providerFiles: string[] | null = null;
+  private _tempFiles: string[] = [];
 
   async detect(): Promise<boolean> {
     return directoryExists(CLAUDE_PROJECTS_DIR);
@@ -244,7 +246,19 @@ export class ClaudeCodeProvider implements AgentProvider {
     // Discover referenced plan/debug files from JSONL content
     const referencedFiles = await this.discoverReferencedFiles(allDirFiles);
 
-    this._providerFiles = [...allDirFiles, ...referencedFiles];
+    // Filter secrets from text-based session files
+    const filtered: string[] = [];
+    for (const file of [...allDirFiles, ...referencedFiles]) {
+      const ext = path.extname(file).toLowerCase();
+      if (FILTERABLE_EXTENSIONS.has(ext)) {
+        const result = await filterSecretLines(file, "claude-filtered", this._tempFiles);
+        if (result) filtered.push(result);
+      } else {
+        filtered.push(file);
+      }
+    }
+
+    this._providerFiles = filtered;
     return this._providerFiles;
   }
 
